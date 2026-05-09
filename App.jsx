@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const GUEST_LIMIT = 1;
 const getGD = () => parseInt(localStorage.getItem("tr_gd") || "0");
@@ -11,6 +11,16 @@ const LEVELS_CBC = ["Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6",
 const LEVELS_844 = ["Form 1","Form 2","Form 3","Form 4"];
 const SUBS_CBC = { "Grade 1":["Math","English","Kiswahili","Environmental Activities"],"Grade 2":["Math","English","Kiswahili","Environmental Activities"],"Grade 3":["Math","English","Kiswahili","Science","Social Studies"],"Grade 4":["Math","English","Kiswahili","Science","Social Studies","CRE"],"Grade 5":["Math","English","Kiswahili","Science","Social Studies","CRE"],"Grade 6":["Math","English","Kiswahili","Science","Social Studies","CRE"],"Grade 7":["Math","English","Kiswahili","Integrated Science","Social Studies","CRE","Health Ed"],"Grade 8":["Math","English","Kiswahili","Integrated Science","Social Studies","CRE","Health Ed"],"Grade 9":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE"],"Grade 10":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE"],"Grade 11":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE"],"Grade 12":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE"] };
 const SUBS_844 = { "Form 1":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE","Business"],"Form 2":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE","Business"],"Form 3":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE","Business"],"Form 4":["Math","English","Kiswahili","Biology","Chemistry","Physics","History","Geography","CRE","Business"] };
+
+// Convert 07xxxxxxxx to 2547xxxxxxxx for API
+const toApiPhone = (phone) => {
+  if (phone.startsWith("07")) return "254" + phone.slice(1);
+  if (phone.startsWith("+254")) return phone.slice(1);
+  return phone;
+};
+
+// Validate phone: must start with 07 and be 10 digits
+const isValidPhone = (phone) => /^07\d{8}$/.test(phone);
 
 function genMaterials() {
   const m = []; let id = 1;
@@ -269,6 +279,7 @@ export default function App() {
           {[
             { l:"System", v:user.system, i:"📘" },
             { l:"Level", v:user.level, i:"🎓" },
+            { l:"Phone", v:user.phone, i:"📱" },
             { l:"Status", v:isSubscribed?(user.trial?"Trial Active":`${user.plan} Plan`):"No Plan", i:"💳", c:isSubscribed?"#27ae60":"#e74c3c" },
             { l:"Expiry", v:isSubscribed?user.expiry||"2 days":"—", i:"📅" },
           ].map(c=>(
@@ -347,9 +358,6 @@ export default function App() {
                   </select>
                 </div>
               </div>
-              <div style={{ background:"rgba(255,180,0,0.05)", border:"1px solid rgba(255,180,0,0.12)", borderRadius:9, padding:"11px 13px", fontSize:12, color:"#888" }}>
-                <strong style={{ color:"#ffb400" }}>Auto Pipeline:</strong> Compress → Watermark → Cover → Preview → Store securely
-              </div>
               <button onClick={upload} disabled={uploading} style={{ ...btnG, opacity:uploading?0.7:1 }}>
                 {uploading?"⏳ Processing…":"⬆ Upload & Process"}
               </button>
@@ -404,16 +412,20 @@ export default function App() {
     );
   };
 
+  // ✅ LOGIN — uses real name from email, saves phone
   const LoginM = () => {
-    const [f, setF] = useState({ email:"", password:"" });
+    const [f, setF] = useState({ email:"", phone:"", password:"" });
     const [ld, setLd] = useState(false);
     const go = async () => {
+      if (!f.email || !f.phone || !f.password) { toast_("Fill all fields","err"); return; }
+      if (!isValidPhone(f.phone)) { toast_("Phone must start with 07 and be 10 digits","err"); return; }
       setLd(true); await delay();
       if (f.email==="admin@topplussrevisions.com") {
-        setUser({ name:"Admin User", email:f.email, system:"CBC", level:"Grade 10", role:"admin", trial:true });
+        setUser({ name:"Admin", email:f.email, phone:f.phone, system:"CBC", level:"Grade 10", role:"admin", trial:true });
         toast_("Welcome, Admin! 🛠"); setPage("admin");
       } else {
-        setUser({ name:"Demo Student", email:f.email, system:"CBC", level:"Grade 9", trial:true, expiry:"2 days" });
+        const name = f.email.split("@")[0];
+        setUser({ name, email:f.email, phone:f.phone, system:"CBC", level:"Grade 9", trial:true, expiry:"2 days" });
         toast_("Welcome back! 👋"); setPage("dash");
       }
       setModal(null); setLd(false);
@@ -424,22 +436,23 @@ export default function App() {
         <p style={{ color:"#888", fontSize:13, margin:"0 0 20px" }}>Login to your Toppluss account</p>
         <div style={{ display:"grid", gap:12 }}>
           <div><label style={lbl}>Email</label><input type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} style={inp} placeholder="you@example.com" /></div>
+          <div><label style={lbl}>Phone (07…)</label><input value={f.phone} onChange={e=>setF(p=>({...p,phone:e.target.value}))} style={inp} placeholder="0712345678" maxLength={10} /></div>
           <div><label style={lbl}>Password</label><input type="password" value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={inp} placeholder="••••••••" /></div>
           <button onClick={go} disabled={ld} style={{ ...btnG, opacity:ld?0.7:1 }}>{ld?"Logging in…":"Login"}</button>
           <p style={{ textAlign:"center", fontSize:12, color:"#888" }}>No account? <button onClick={()=>setModal("register")} style={{ background:"none", border:"none", color:"#ffb400", cursor:"pointer", fontWeight:700, fontSize:12 }}>Register free</button></p>
-          <p style={{ textAlign:"center", fontSize:10, color:"#555" }}>💡 admin@topplussrevisions.com → Admin panel</p>
         </div>
       </div>
     );
   };
 
+  // ✅ REGISTER — 07 format, saves real name & phone
   const RegisterM = () => {
     const [f, setF] = useState({ name:"", email:"", phone:"", password:"", system:"CBC", level:"Grade 1" });
     const [ld, setLd] = useState(false);
     const rLvls = f.system==="CBC"?LEVELS_CBC:LEVELS_844;
     const go = async () => {
       if (!f.name||!f.email||!f.phone||!f.password) { toast_("Fill all fields","err"); return; }
-      if (!f.phone.startsWith("254")) { toast_("Phone must start with 254","err"); return; }
+      if (!isValidPhone(f.phone)) { toast_("Phone must start with 07 and be 10 digits","err"); return; }
       setLd(true); await delay(1200);
       setUser({ name:f.name, email:f.email, phone:f.phone, system:f.system, level:f.level, trial:true, expiry:"2 days" });
       toast_("🎉 Registered! Trial active."); setModal(null); setPage("dash"); setLd(false);
@@ -451,7 +464,7 @@ export default function App() {
         <div style={{ display:"grid", gap:11 }}>
           <div><label style={lbl}>Full Name</label><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} style={inp} placeholder="Jane Mwangi" /></div>
           <div><label style={lbl}>Email</label><input type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} style={inp} placeholder="jane@example.com" /></div>
-          <div><label style={lbl}>Phone (254…)</label><input value={f.phone} onChange={e=>setF(p=>({...p,phone:e.target.value}))} style={inp} placeholder="254712345678" /></div>
+          <div><label style={lbl}>Phone (07…)</label><input value={f.phone} onChange={e=>setF(p=>({...p,phone:e.target.value}))} style={inp} placeholder="0712345678" maxLength={10} /></div>
           <div><label style={lbl}>Password</label><input type="password" value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={inp} placeholder="Min 6 characters" /></div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
             <div><label style={lbl}>System</label>
@@ -472,34 +485,38 @@ export default function App() {
     );
   };
 
+  // ✅ SUBSCRIBE — uses saved 07 phone, converts to 254 for API
   const SubscribeM = () => {
     const [plan, setPlan] = useState("monthly");
     const [phone, setPhone] = useState(user?.phone||"");
     const [ld, setLd] = useState(false);
     const [step, setStep] = useState("choose");
+
     const pay = async () => {
-      if (!phone.startsWith("254")) { toast_("Enter valid 254 number","err"); return; }
-    setLd(true); setStep("mpesa");
-try {
-  const res = await fetch("/.netlify/functions/mpesa", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone, amount: plan==="weekly" ? 50 : 150 })
-  });
-  const data = await res.json();
-  if (data.success || res.ok) {
-    setUser(u=>({...u,plan,trial:false,expiry:plan==="weekly"?"7 days":"30 days"}));
-    setStep("done");
-  } else {
-    toast_("Payment failed: " + (data.message||"Try again"), "err");
-    setStep("choose");
-  }
-} catch(e) {
-  toast_("Network error. Try again.", "err");
-  setStep("choose");
-}
-setLd(false);
+      if (!isValidPhone(phone)) { toast_("Enter valid 07 number e.g. 0712345678","err"); return; }
+      const apiPhone = toApiPhone(phone); // convert 07xx to 254xx for InstaSend
+      setLd(true); setStep("mpesa");
+      try {
+        const res = await fetch("/.netlify/functions/mpesa", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: apiPhone, amount: plan==="weekly" ? 50 : 150 })
+        });
+        const data = await res.json();
+        if (data.success || res.ok) {
+          setUser(u=>({...u, plan, trial:false, expiry:plan==="weekly"?"7 days":"30 days"}));
+          setStep("done");
+        } else {
+          toast_("Payment failed: " + (data.message||"Try again"), "err");
+          setStep("choose");
+        }
+      } catch(e) {
+        toast_("Network error. Try again.", "err");
+        setStep("choose");
+      }
+      setLd(false);
     };
+
     return (
       <div>
         {step==="done"?(
@@ -530,8 +547,9 @@ setLd(false);
               ))}
             </div>
             <div style={{ marginBottom:14 }}>
-              <label style={lbl}>M-Pesa Phone</label>
-              <input value={phone} onChange={e=>setPhone(e.target.value)} style={inp} placeholder="254712345678" />
+              <label style={lbl}>M-Pesa Phone (07…)</label>
+              <input value={phone} onChange={e=>setPhone(e.target.value)} style={inp} placeholder="0712345678" maxLength={10} />
+              <div style={{ fontSize:11, color:"#777", marginTop:5 }}>Enter your Safaricom number starting with 07</div>
             </div>
             <button onClick={pay} disabled={ld} style={{ ...btnG, opacity:ld?0.7:1 }}>
               {ld?"Sending STK Push…":`Pay ${plan==="weekly"?"KSh 50":"KSh 150"} via M-Pesa`}
