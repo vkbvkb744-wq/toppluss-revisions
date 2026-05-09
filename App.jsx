@@ -479,9 +479,26 @@ export default function App() {
     const [step, setStep] = useState("choose");
     const pay = async () => {
       if (!phone.startsWith("254")) { toast_("Enter valid 254 number","err"); return; }
-      setLd(true); setStep("mpesa"); await delay(2800);
-      setUser(u=>({...u,plan,trial:false,expiry:plan==="weekly"?"7 days":"30 days"}));
-      setStep("done"); setLd(false);
+    setLd(true); setStep("mpesa");
+try {
+  const res = await fetch("/.netlify/functions/mpesa", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, amount: plan==="weekly" ? 50 : 150 })
+  });
+  const data = await res.json();
+  if (data.success || res.ok) {
+    setUser(u=>({...u,plan,trial:false,expiry:plan==="weekly"?"7 days":"30 days"}));
+    setStep("done");
+  } else {
+    toast_("Payment failed: " + (data.message||"Try again"), "err");
+    setStep("choose");
+  }
+} catch(e) {
+  toast_("Network error. Try again.", "err");
+  setStep("choose");
+}
+setLd(false);
     };
     return (
       <div>
