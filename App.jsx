@@ -85,7 +85,7 @@ function Cover({ m, big }) {
     <div style={{ height: big ? 160 : 72, background: `linear-gradient(135deg,${m.color}cc,${m.color}44)`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: big ? "12px 12px 0 0" : 8, position: "relative", overflow: "hidden", flexShrink: 0 }}>
       <div style={{ fontSize: big ? 36 : 20 }}>{e[m.type]}</div>
       <div style={{ fontSize: 9, color: "#fff", fontWeight: 700, opacity: 0.7, textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>{m.system}</div>
-      <div style={{ position: "absolute", bottom: 5, right: 8, fontSize: 8, color: "#fff", opacity: 0.3, fontStyle: "italic" }}>topplussrevisions.top</div>
+      <div style={{ position: "absolute", bottom: 5, right: 8, fontSize: 8, color: "#fff", opacity: 0.3, fontStyle: "italic" }}>topplussrevisions.com</div>
     </div>
   );
 }
@@ -559,7 +559,7 @@ export default function App() {
           reader.readAsDataURL(file);
         });
 
-        setUploadProgress("Compressing & watermarking PDF…");
+        setUploadProgress("Watermarking PDF…");
 
         // Send to Netlify function for watermarking + Supabase upload
         const res = await fetch("/.netlify/functions/watermark-upload", {
@@ -579,10 +579,7 @@ export default function App() {
         }
 
         setUploadProgress("Done!");
-        const saved = data.savedPercent > 0
-          ? ` Compressed by ${data.savedPercent}% (${data.originalSizeKB}KB → ${data.processedSizeKB}KB)`
-          : "";
-        toast_(`✅ Uploaded & watermarked!${saved}`);
+        toast_("✅ Material uploaded & watermarked!");
         setForm({ title: "", system: "CBC", level: "Grade 1", subject: "", type: "Notes" });
         setFile(null);
         // Reload materials
@@ -660,7 +657,7 @@ export default function App() {
                     <div>
                       <div style={{ fontSize: 28, marginBottom: 5 }}>📁</div>
                       <div style={{ color: "#888", fontSize: 13 }}>Click to select PDF</div>
-                      <div style={{ color: "#555", fontSize: 11, marginTop: 3 }}>Will be compressed & watermarked automatically</div>
+                      <div style={{ color: "#555", fontSize: 11, marginTop: 3 }}>Will be watermarked automatically</div>
                     </div>
                   )}
                 </div>
@@ -674,7 +671,7 @@ export default function App() {
               )}
 
               <button onClick={upload} disabled={uploading} style={{ ...btnG, opacity: uploading ? 0.7 : 1 }}>
-                {uploading ? `⏳ ${uploadProgress || "Uploading…"}` : "⬆ Upload, Compress & Watermark PDF"}
+                {uploading ? `⏳ ${uploadProgress || "Uploading…"}` : "⬆ Upload & Watermark PDF"}
               </button>
             </div>
           </div>
@@ -959,10 +956,12 @@ export default function App() {
             <p><strong>2. Learning Outcomes</strong></p>
             <p>By the end of this revision unit, learners will be able to apply core principles through worked examples and practice questions...</p>
           </div>
-          {/* Watermark overlay in preview — one centered diagonal, like the real PDF */}
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) rotate(-28deg)", opacity: 0.15, fontSize: 15, fontWeight: 900, color: "#000", whiteSpace: "nowrap", pointerEvents: "none", letterSpacing: 1 }}>
-            www.topplussrevisions.top
-          </div>
+          {/* Watermark overlay in preview */}
+          {[...Array(6)].map((_, i) => (
+            <div key={i} style={{ position: "absolute", top: `${10 + i * 18}%`, left: `${(i % 3) * 30}%`, transform: "rotate(-28deg)", opacity: 0.12, fontSize: 13, fontWeight: 900, color: "#000", whiteSpace: "nowrap", pointerEvents: "none" }}>
+              www.topplussrevisions.com
+            </div>
+          ))}
           <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 90, background: "linear-gradient(transparent,rgba(255,255,255,0.97))", display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 10, borderRadius: "0 0 10px 10px" }}>
             <span style={{ fontSize: 11, color: "#888", fontStyle: "italic" }}>…preview ends here. Download to read full document.</span>
           </div>
