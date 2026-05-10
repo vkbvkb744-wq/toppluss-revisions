@@ -1,60 +1,75 @@
 // netlify/functions/watermark-upload.js
-// Receives: { fileBase64, fileName, metadata: { title, system, level, subject, type } }
-// 1. Watermarks every page with www.topplussrevisions.com (diagonal, repeated)
-// 2. Uploads watermarked PDF to Supabase Storage
-// 3. Saves material record to Supabase DB
-// 4. Returns { success, materialId, publicUrl }
+// 1. Compresses the PDF (removes metadata, flattens, optimizes)
+// 2. Watermarks every page with one centered diagonal www.topplussrevisions.com
+// 3. Uploads to Supabase Storage
+// 4. Saves material record to Supabase DB
 
-const { PDFDocument, rgb, degrees } = require("pdf-lib");
+const { PDFDocument, rgb, degrees, StandardFonts } = require("pdf-lib");
 const { createClient } = require("@supabase/supabase-js");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // use service role for server-side uploads
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 const BUCKET = "materials";
 const WATERMARK_TEXT = "www.topplussrevisions.com";
 
-async function addWatermark(pdfBytes) {
-  const pdfDoc = await PDFDocument.load(pdfBytes);
+async function compressAndWatermark(pdfBytes) {
+  // Load original PDF
+  const pdfDoc = await PDFDocument.load(pdfBytes, {
+    ignoreEncryption: true,
+  });
 
-  // Embed a standard font
-  const { StandardFonts } = require("pdf-lib");
-  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  // ── Compression ──────────────────────────────────────────
+  // Create a brand new PDF document
+  const compressed = await PDFDocument.create();
 
-  const pages = pdfDoc.getPages();
+  // Copy all pages into the new clean document
+  const pageIndices = pdfDoc.getPageIndices();
+  const copiedPages = await compressed.copyPages(pdfDoc, pageIndices);
+  copiedPages.forEach((page) => compressed.addPage(page));
+
+  // Strip all metadata (reduces file size)
+  compressed.setTitle("");
+  compressed.setAuthor("");
+  compressed.setSubject("");
+  compressed.setKeywords([]);
+  compressed.setProducer("");
+  compressed.setCreator("");
+
+  // ── Watermark ─────────────────────────────────────────────
+  const font = await compressed.embedFont(StandardFonts.HelveticaBold);
+  const pages = compressed.getPages();
 
   for (const page of pages) {
     const { width, height } = page.getSize();
-    const fontSize = Math.min(width, height) * 0.045; // ~4.5% of smaller dimension
+    const fontSize = Math.min(width, height) * 0.048;
     const textWidth = font.widthOfTextAtSize(WATERMARK_TEXT, fontSize);
 
-    // Draw watermark multiple times across the page in a grid pattern
-    const cols = 3;
-    const rows = 4;
-    const colStep = width / cols;
-    const rowStep = height / rows;
+    // ONE watermark — centered diagonally on the page
+    const x = (width - textWidth) / 2;
+    const y = height / 2;
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x = colStep * c + colStep * 0.1;
-        const y = rowStep * r + rowStep * 0.3;
-
-        page.drawText(WATERMARK_TEXT, {
-          x,
-          y,
-          size: fontSize,
-          font,
-          color: rgb(0.55, 0.55, 0.55),
-          opacity: 0.18,
-          rotate: degrees(-28),
-        });
-      }
-    }
+    page.drawText(WATERMARK_TEXT, {
+      x,
+      y,
+      size: fontSize,
+      font,
+      color: rgb(0.55, 0.55, 0.55),
+      opacity: 0.22,
+      rotate: degrees(-28),
+    });
   }
 
-  return await pdfDoc.save();
+  // Save with compression options
+  const savedBytes = await compressed.save({
+    useObjectStreams: true,   // compresses object streams
+    addDefaultPage: false,
+    objectsPerTick: 50,
+  });
+
+  return savedBytes;
 }
 
 exports.handler = async (event) => {
@@ -77,19 +92,23 @@ exports.handler = async (event) => {
 
   try {
     // 1. Decode base64 PDF
-    const pdfBytes = Buffer.from(fileBase64, "base64");
+    const originalBytes = Buffer.from(fileBase64, "base64");
+    const originalSize = originalBytes.length;
 
-    // 2. Watermark
-    const watermarkedBytes = await addWatermark(pdfBytes);
+    // 2. Compress + Watermark
+    const processedBytes = await compressAndWatermark(originalBytes);
+    const processedSize = processedBytes.length;
+
+    const savedPercent = Math.round((1 - processedSize / originalSize) * 100);
 
     // 3. Build storage path
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const storagePath = `${metadata.system}/${metadata.level}/${metadata.subject}/${Date.now()}_${safeName}`;
 
-    // 4. Upload to Supabase Storage
+    // 4. Upload compressed + watermarked PDF to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(storagePath, watermarkedBytes, {
+      .upload(storagePath, processedBytes, {
         contentType: "application/pdf",
         upsert: false,
       });
@@ -97,7 +116,9 @@ exports.handler = async (event) => {
     if (uploadError) throw uploadError;
 
     // 5. Get public URL
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+    const { data: urlData } = supabase.storage
+      .from(BUCKET)
+      .getPublicUrl(storagePath);
     const publicUrl = urlData.publicUrl;
 
     // 6. Insert material record into DB
@@ -128,6 +149,9 @@ exports.handler = async (event) => {
         materialId: material.id,
         publicUrl,
         title: material.title,
+        originalSizeKB: Math.round(originalSize / 1024),
+        processedSizeKB: Math.round(processedSize / 1024),
+        savedPercent: savedPercent > 0 ? savedPercent : 0,
       }),
     };
   } catch (err) {
