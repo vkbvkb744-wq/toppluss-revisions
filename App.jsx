@@ -6,10 +6,6 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-const GUEST_LIMIT = 1;
-const getGD = () => parseInt(localStorage.getItem("tr_gd") || "0");
-const incGD = () => localStorage.setItem("tr_gd", getGD() + 1);
-
 const COLORS = ["#e74c3c","#e67e22","#f39c12","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00b894","#0984e3"];
 const TYPES = ["Notes", "Past Papers", "Marking Schemes"];
 const LEVELS_CBC = ["Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7","Grade 8","Grade 9","Grade 10","Grade 11","Grade 12"];
@@ -60,12 +56,11 @@ const S = {
   },
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function Toast({ msg, type }) {
   if (!msg) return null;
   return (
     <div style={{
-      position:"fixed",bottom:90,left:16,right:16,
+      position:"fixed",bottom:20,left:16,right:16,
       background:type==="err"?"#c0392b":"#27ae60",
       color:"#fff",padding:"13px 20px",borderRadius:14,
       fontWeight:700,fontSize:14,zIndex:9999,textAlign:"center",
@@ -79,18 +74,15 @@ function Modal({ children, onClose }) {
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{
       position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",
       display:"flex",alignItems:"flex-end",justifyContent:"center",
-      zIndex:1000,padding:"0",
+      zIndex:1000,
     }}>
       <div style={{
         background:"#0d1929",borderRadius:"20px 20px 0 0",
-        padding:"24px 20px 36px",width:"100%",maxWidth:520,
-        maxHeight:"90vh",overflowY:"auto",position:"relative",
+        padding:"24px 20px 40px",width:"100%",maxWidth:520,
+        maxHeight:"92vh",overflowY:"auto",position:"relative",
         border:"1px solid rgba(255,180,0,0.15)",
       }}>
-        <div style={{
-          width:40,height:4,background:"rgba(255,255,255,0.15)",
-          borderRadius:2,margin:"0 auto 20px",
-        }}/>
+        <div style={{width:40,height:4,background:"rgba(255,255,255,0.15)",borderRadius:2,margin:"0 auto 20px"}}/>
         <button onClick={onClose} style={{
           position:"absolute",top:16,right:16,
           background:"rgba(255,255,255,0.08)",border:"none",
@@ -107,20 +99,19 @@ function Cover({ m, big }) {
   const icons = { Notes:"📝","Past Papers":"📄","Marking Schemes":"✅" };
   return (
     <div style={{
-      height:big?140:64,
+      height:big?120:56,
       background:`linear-gradient(135deg,${m.color}cc,${m.color}44)`,
       display:"flex",flexDirection:"column",alignItems:"center",
       justifyContent:"center",position:"relative",overflow:"hidden",
-      borderRadius:big?"14px 14px 0 0":10,flexShrink:0,
+      borderRadius:big?"14px 14px 0 0":10,flexShrink:0,width:big?"100%":56,
     }}>
-      <div style={{fontSize:big?32:18}}>{icons[m.type]}</div>
-      <div style={{fontSize:8,color:"#fff",fontWeight:700,opacity:0.6,textTransform:"uppercase",letterSpacing:1,marginTop:2}}>{m.system}</div>
-      <div style={{position:"absolute",bottom:4,right:6,fontSize:7,color:"#fff",opacity:0.25,fontStyle:"italic"}}>topplussrevisions.top</div>
+      <div style={{fontSize:big?28:16}}>{icons[m.type]}</div>
+      <div style={{fontSize:7,color:"#fff",fontWeight:700,opacity:0.55,textTransform:"uppercase",letterSpacing:1,marginTop:2}}>{m.system}</div>
+      <div style={{position:"absolute",bottom:3,right:5,fontSize:6,color:"#fff",opacity:0.2,fontStyle:"italic"}}>topplussrevisions.top</div>
     </div>
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState("home");
   const [user, setUser] = useState(null);
@@ -140,7 +131,6 @@ export default function App() {
     setTimeout(() => setToast({ msg:"",type:"ok" }), 3500);
   };
 
-  // Auth
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) { setUser(session.user); loadProfile(session.user.id); checkSub(session.user.id); }
@@ -211,12 +201,22 @@ export default function App() {
     } else showToast("File not available yet","err");
   };
 
-  const handleDL = (mat) => {
-    if (isAdmin||isSubscribed) { doDownload(mat); return; }
-    if (user) { setModal("subscribe"); return; }
-    const g=getGD();
-    if (g<GUEST_LIMIT) { incGD(); doDownload(mat); if(g+1>=GUEST_LIMIT) showToast("Free download used! Register to continue","err"); }
-    else setModal("gate");
+  const handleDL = async (mat) => {
+    // Admin or subscribed — free download
+    if (isAdmin || isSubscribed) { doDownload(mat); return; }
+    // Not logged in — must register first
+    if (!user) { setModal("gate"); return; }
+    // Logged in but no subscription — check free downloads used
+    const used = profile?.free_downloads_used || 0;
+    if (used < 2) {
+      // Use one free download
+      await supabase.from("profiles").update({ free_downloads_used: used + 1 }).eq("id", user.id);
+      setProfile(p => ({ ...p, free_downloads_used: used + 1 }));
+      doDownload(mat);
+      if (used + 1 >= 2) showToast("2 free downloads used! Subscribe to continue","err");
+    } else {
+      setModal("subscribe");
+    }
   };
 
   const logout = async () => {
@@ -225,168 +225,133 @@ export default function App() {
     setPage("home"); showToast("Logged out");
   };
 
-  // ── Card ──────────────────────────────────────────────────────────────────
+  // ── Card (horizontal row style like lovable) ──────────────────────────────
   const Card = ({ m }) => (
-    <div style={S.card}>
-      <Cover m={m} big />
-      <div style={{padding:"12px 13px 14px"}}>
-        <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{m.system} · {m.level}</div>
-        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2,lineHeight:1.3,minHeight:34}}>{m.title}</div>
-        <div style={{fontSize:11,color:"#666",marginBottom:10}}>{m.subject} · {m.type}</div>
-        <div style={{display:"flex",gap:6,marginBottom:8}}>
-          <button onClick={()=>{setPrevMat(m);setModal("preview");}} style={{flex:1,background:"rgba(255,255,255,0.07)",border:"none",color:"#ccc",borderRadius:9,padding:"8px 0",cursor:"pointer",fontWeight:600,fontSize:12}}>👁 Preview</button>
-          <button onClick={()=>handleDL(m)} style={{flex:1,background:"linear-gradient(135deg,#ffb400,#ff7b00)",border:"none",color:"#000",borderRadius:9,padding:"8px 0",cursor:"pointer",fontWeight:800,fontSize:12}}>⬇ Download</button>
+    <div style={{
+      ...S.card,
+      display:"flex",flexDirection:"row",gap:0,alignItems:"stretch",
+    }}>
+      <Cover m={m} />
+      <div style={{padding:"10px 12px",flex:1,minWidth:0}}>
+        <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{m.system} · {m.level}</div>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:1,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</div>
+        <div style={{fontSize:11,color:"#666",marginBottom:8}}>{m.subject} · {m.type}</div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setPrevMat(m);setModal("preview");}} style={{flex:1,background:"rgba(255,255,255,0.07)",border:"none",color:"#ccc",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:600,fontSize:11}}>👁 Preview</button>
+          <button onClick={()=>handleDL(m)} style={{flex:1,background:"linear-gradient(135deg,#ffb400,#ff7b00)",border:"none",color:"#000",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:800,fontSize:11}}>⬇ Download</button>
         </div>
-        <div style={{fontSize:10,color:"#444",display:"flex",justifyContent:"space-between"}}>
-          <span>⬇ {(m.downloads||0).toLocaleString()}</span>
-          <span>{m.pages?`${m.pages}p`:""}</span>
-        </div>
+      </div>
+      <div style={{padding:"10px 10px 10px 0",display:"flex",flexDirection:"column",justifyContent:"flex-end",alignItems:"flex-end",gap:2,flexShrink:0}}>
+        <span style={{fontSize:10,color:"#444"}}>⬇ {(m.downloads||0).toLocaleString()}</span>
+        {m.pages&&<span style={{fontSize:9,color:"#333"}}>{m.pages}p</span>}
       </div>
     </div>
   );
 
-  // ── Nav ───────────────────────────────────────────────────────────────────
+  // ── Nav (matches lovable — full links visible) ─────────────────────────────
   const Nav = () => (
-    <nav style={{
-      position:"sticky",top:0,zIndex:200,
-      background:"rgba(8,14,28,0.98)",backdropFilter:"blur(16px)",
-      borderBottom:"1px solid rgba(255,180,0,0.1)",
-      padding:"0 16px",height:58,
-      display:"flex",alignItems:"center",justifyContent:"space-between",
-    }}>
-      {/* Logo */}
-      <div onClick={()=>{setPage("home");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-        <div style={{width:30,height:30,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#000",flexShrink:0}}>T+</div>
-        <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:15,color:"#fff",whiteSpace:"nowrap"}}>Toppluss <span style={{color:"#ffb400"}}>Revisions</span></span>
-      </div>
+    <>
+      <nav style={{
+        position:"sticky",top:0,zIndex:200,
+        background:"rgba(8,14,28,0.98)",backdropFilter:"blur(16px)",
+        borderBottom:"1px solid rgba(255,180,0,0.1)",
+        padding:"0 16px",height:56,
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+      }}>
+        {/* Logo */}
+        <div onClick={()=>{setPage("home");setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",flexShrink:0}}>
+          <div style={{width:32,height:32,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:"#000"}}>T+</div>
+          <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:16,color:"#fff",whiteSpace:"nowrap"}}>Toppluss <span style={{color:"#ffb400"}}>Revisions</span></span>
+        </div>
 
-      {/* Desktop nav */}
-      <div style={{display:"flex",gap:4,alignItems:"center"}}>
-        {/* Mobile menu button */}
-        <button onClick={()=>setMenuOpen(!menuOpen)} style={{
-          background:"none",border:"none",color:"#fff",fontSize:22,
-          cursor:"pointer",padding:"4px 8px",lineHeight:1,
-          display:"block",
-        }}>☰</button>
-      </div>
+        {/* Right side nav */}
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          {/* Always visible nav links */}
+          <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:page==="home"?"#ffb400":"#aaa",cursor:"pointer",fontWeight:700,fontSize:13,padding:"6px 8px"}}>🏠 Home</button>
+          <button onClick={()=>setPage("browse")} style={{background:"none",border:"none",color:page==="browse"?"#ffb400":"#aaa",cursor:"pointer",fontWeight:700,fontSize:13,padding:"6px 8px"}}>📚 Browse</button>
 
-      {/* Slide-down menu */}
-      {menuOpen && (
-        <div style={{
-          position:"fixed",top:58,left:0,right:0,
-          background:"#0d1929",borderBottom:"1px solid rgba(255,180,0,0.15)",
-          padding:"12px 16px 20px",zIndex:199,
-          display:"flex",flexDirection:"column",gap:8,
-        }}>
-          {[
-            {l:"🏠 Home",p:"home"},
-            {l:"📚 Browse",p:"browse"},
-            ...(isAdmin?[{l:"🛠 Admin",p:"admin"}]:[]),
-          ].map(({l,p})=>(
-            <button key={p} onClick={()=>{setPage(p);setMenuOpen(false);}} style={{
-              background:page===p?"rgba(255,180,0,0.12)":"rgba(255,255,255,0.04)",
-              border:`1px solid ${page===p?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,
-              color:page===p?"#ffb400":"#ddd",padding:"12px 16px",borderRadius:10,
-              cursor:"pointer",fontWeight:700,fontSize:14,textAlign:"left",
-            }}>{l}</button>
-          ))}
-          <div style={{height:1,background:"rgba(255,255,255,0.06)",margin:"4px 0"}}/>
           {user ? (
             <>
-              <button onClick={()=>{setPage("dash");setMenuOpen(false);}} style={{
+              {isAdmin&&<button onClick={()=>setPage("admin")} style={{background:"none",border:"none",color:page==="admin"?"#ffb400":"#aaa",cursor:"pointer",fontWeight:700,fontSize:13,padding:"6px 8px"}}>🛠</button>}
+              <button onClick={()=>setPage("dash")} style={{
                 background:"rgba(255,180,0,0.1)",border:"1px solid rgba(255,180,0,0.25)",
-                color:"#ffb400",padding:"12px 16px",borderRadius:10,
-                cursor:"pointer",fontWeight:700,fontSize:14,textAlign:"left",
-              }}>
-                👤 {userName.split(" ")[0]}
-                {isSubscribed&&<span style={{marginLeft:8,fontSize:10,background:"#27ae60",color:"#fff",borderRadius:10,padding:"2px 8px"}}>{subscription.plan}</span>}
-                {subscription?.reason==="expired"&&<span style={{marginLeft:8,fontSize:10,background:"#c0392b",color:"#fff",borderRadius:10,padding:"2px 8px"}}>Expired</span>}
-              </button>
-              <button onClick={()=>{logout();setMenuOpen(false);}} style={{
-                background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",
-                color:"#888",padding:"12px 16px",borderRadius:10,
-                cursor:"pointer",fontWeight:700,fontSize:14,textAlign:"left",
-              }}>🚪 Logout</button>
+                color:"#ffb400",padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,
+              }}>👤 {userName.split(" ")[0]}</button>
             </>
           ) : (
             <>
-              <button onClick={()=>{setModal("login");setMenuOpen(false);}} style={{
-                background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.13)",
-                color:"#fff",padding:"12px 16px",borderRadius:10,
-                cursor:"pointer",fontWeight:700,fontSize:14,
-              }}>Login</button>
-              <button onClick={()=>{setModal("register");setMenuOpen(false);}} style={{
-                ...S.btn,borderRadius:10,padding:"12px 16px",textAlign:"left",
-              }}>Register Free</button>
+              <button onClick={()=>setModal("login")} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13}}>Login</button>
+              <button onClick={()=>setModal("register")} style={{background:"linear-gradient(135deg,#ffb400,#ff7b00)",border:"none",color:"#000",padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:13}}>Register</button>
             </>
           )}
         </div>
-      )}
-    </nav>
+      </nav>
+    </>
   );
 
   // ── Home ──────────────────────────────────────────────────────────────────
   const Home = () => (
     <div>
       {/* Hero */}
-      <div style={{position:"relative",padding:"52px 20px 56px",textAlign:"center",overflow:"hidden"}}>
-        <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse 90% 60% at 50% 0%,rgba(255,180,0,0.1),transparent)",pointerEvents:"none"}}/>
+      <div style={{position:"relative",padding:"48px 20px 52px",textAlign:"center",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse 90% 60% at 50% 0%,rgba(255,180,0,0.09),transparent)",pointerEvents:"none"}}/>
         <div style={{display:"inline-block",background:"rgba(255,180,0,0.1)",border:"1px solid rgba(255,180,0,0.3)",borderRadius:50,padding:"5px 16px",fontSize:11,color:"#ffb400",fontWeight:700,marginBottom:16,textTransform:"uppercase",letterSpacing:1.2}}>Kenya's #1 Revision Platform</div>
-        <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(26px,7vw,48px)",fontWeight:900,color:"#fff",lineHeight:1.15,margin:"0 0 14px"}}>
+        <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(24px,6.5vw,44px)",fontWeight:900,color:"#fff",lineHeight:1.15,margin:"0 0 12px"}}>
           Ace Every Exam with<br/><span style={{color:"#ffb400"}}>Toppluss Revisions</span>
         </h1>
-        <p style={{color:"#aaa",fontSize:"clamp(13px,3.5vw,16px)",maxWidth:400,margin:"0 auto 28px",lineHeight:1.7}}>
-          Notes, Past Papers & Marking Schemes for CBC & 8-4-4 students across Kenya.
+        <p style={{color:"#aaa",fontSize:"clamp(13px,3.5vw,15px)",maxWidth:380,margin:"0 auto 24px",lineHeight:1.7}}>
+          Curated Notes, Past Papers & Marking Schemes for CBC & 8-4-4 students across Kenya.
         </p>
-        <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:320,margin:"0 auto 40px"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:300,margin:"0 auto 36px"}}>
           <button onClick={()=>setPage("browse")} style={S.btn}>Browse Materials →</button>
-          {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",color:"#fff",padding:"14px 0",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer"}}>Register Free</button>}
+          {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",color:"#fff",padding:"13px 0",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer"}}>Register Free</button>}
         </div>
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12,maxWidth:320,margin:"0 auto"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,maxWidth:300,margin:"0 auto"}}>
           {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["1 Free","Download"],["KSh 50","From /week"]].map(([n,l])=>(
-            <div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px 10px",textAlign:"center"}}>
-              <div style={{fontSize:18,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div>
-              <div style={{fontSize:11,color:"#666",marginTop:3}}>{l}</div>
+            <div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"12px 10px",textAlign:"center"}}>
+              <div style={{fontSize:17,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div>
+              <div style={{fontSize:10,color:"#666",marginTop:2}}>{l}</div>
             </div>
           ))}
         </div>
       </div>
 
       {/* Search */}
-      <div style={{padding:"0 16px 20px"}}>
+      <div style={{padding:"0 16px 16px"}}>
         <div style={{position:"relative"}}>
-          <input placeholder="Search notes, past papers, subjects…" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&search)setPage("browse");}} style={{...S.inp,paddingLeft:42,fontSize:14}} />
-          <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:16,color:"#555"}}>🔍</span>
+          <input placeholder="🔍  Search notes, past papers, subjects…" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&search)setPage("browse");}} style={{...S.inp,fontSize:14}}/>
         </div>
       </div>
 
-      {/* Materials sections */}
+      {/* Materials */}
       {matsLoading ? (
         <div style={{textAlign:"center",padding:"60px 0",color:"#555"}}>⏳ Loading materials…</div>
       ) : (
         <>
           {topDL.length>0&&(
-            <div style={{padding:"0 16px 40px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+            <div style={{padding:"0 16px 32px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
                 <span style={{fontSize:18}}>🔥</span>
-                <h2 style={{margin:0,fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Most Downloaded</h2>
+                <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Most Downloaded</h2>
+                <span style={{fontSize:11,color:"#555",marginLeft:4}}>Most popular revision materials</span>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 {topDL.map(m=><Card key={m.id} m={m}/>)}
               </div>
             </div>
           )}
           {latest.length>0&&(
-            <div style={{padding:"0 16px 40px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+            <div style={{padding:"0 16px 32px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
                 <span style={{fontSize:18}}>🆕</span>
-                <h2 style={{margin:0,fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Latest Uploads</h2>
+                <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Latest Uploads</h2>
+                <span style={{fontSize:11,color:"#555",marginLeft:4}}>Freshly added content</span>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 {latest.map(m=><Card key={m.id} m={m}/>)}
               </div>
-              <button onClick={()=>setPage("browse")} style={{display:"block",width:"100%",marginTop:16,background:"none",border:"1px solid rgba(255,180,0,0.3)",color:"#ffb400",padding:"13px 0",borderRadius:12,cursor:"pointer",fontWeight:700,fontSize:14}}>View All Materials →</button>
+              <button onClick={()=>setPage("browse")} style={{display:"block",width:"100%",marginTop:14,background:"none",border:"1px solid rgba(255,180,0,0.3)",color:"#ffb400",padding:"12px 0",borderRadius:12,cursor:"pointer",fontWeight:700,fontSize:13}}>View All →</button>
             </div>
           )}
           {mats.length===0&&(
@@ -400,26 +365,27 @@ export default function App() {
       )}
 
       {/* Plans */}
-      <div style={{padding:"32px 16px 60px",background:"rgba(255,180,0,0.02)",borderTop:"1px solid rgba(255,180,0,0.07)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
+      <div style={{padding:"28px 16px 40px",background:"rgba(255,180,0,0.02)",borderTop:"1px solid rgba(255,180,0,0.07)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:18}}>💳</span>
-          <h2 style={{margin:0,fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Subscription Plans</h2>
+          <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Subscription Plans</h2>
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <p style={{color:"#666",fontSize:12,margin:"0 0 16px"}}>Affordable access via M-Pesa</p>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
           {[
             {name:"Weekly",price:"KSh 50",period:"per week",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"]},
-            {name:"Monthly",price:"KSh 150",period:"per month",feats:["Everything in Weekly","Best Value","Priority Support"],hot:true},
+            {name:"Monthly",price:"KSh 150",period:"per month",feats:["Everything Weekly","Best Value","Priority Support"],hot:true},
           ].map(plan=>(
-            <div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.08)"}`,borderRadius:16,padding:"20px 18px",position:"relative"}}>
-              {plan.hot&&<div style={{position:"absolute",top:-11,right:16,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:10,fontWeight:800,padding:"3px 12px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.08)"}`,borderRadius:16,padding:"18px 16px",position:"relative"}}>
+              {plan.hot&&<div style={{position:"absolute",top:-10,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div>
-                  <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>{plan.name}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{plan.name}</div>
                   <div style={{fontSize:11,color:"#888"}}>{plan.period}</div>
                 </div>
-                <div style={{fontSize:28,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{plan.price}</div>
+                <div style={{fontSize:26,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{plan.price}</div>
               </div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
                 {plan.feats.map(f=><span key={f} style={{fontSize:12,color:"#bbb"}}>✅ {f}</span>)}
               </div>
               <button onClick={()=>setModal(user?"subscribe":"register")} style={S.btn}>
@@ -429,6 +395,17 @@ export default function App() {
           ))}
         </div>
       </div>
+
+      {/* Footer */}
+      <div style={{background:"#060b18",borderTop:"1px solid rgba(255,255,255,0.06)",padding:"24px 16px",textAlign:"center"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:8}}>
+          <div style={{width:28,height:28,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,color:"#000"}}>T+</div>
+          <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14,color:"#fff"}}>Toppluss <span style={{color:"#ffb400"}}>Revisions</span></span>
+        </div>
+        <p style={{color:"#555",fontSize:11,margin:"0 0 8px"}}>Kenya's trusted revision platform · CBC & 8-4-4</p>
+        <a href="https://wa.me/254755803149" style={{color:"#ffb400",fontSize:12,fontWeight:600,textDecoration:"none"}}>📞 +254 755 803 149</a>
+        <p style={{color:"#333",fontSize:10,margin:"8px 0 0"}}>© 2025 Toppluss Revisions</p>
+      </div>
     </div>
   );
 
@@ -436,44 +413,41 @@ export default function App() {
   const Browse = () => {
     const lvls = filt.system==="CBC"?LEVELS_CBC:filt.system==="8-4-4"?LEVELS_844:[...LEVELS_CBC,...LEVELS_844];
     return (
-      <div style={{padding:"20px 16px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+      <div style={{padding:"20px 16px 40px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
           <span style={{fontSize:18}}>📚</span>
-          <h2 style={{margin:0,fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Browse Materials</h2>
+          <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Browse Materials</h2>
           <span style={{fontSize:12,color:"#666",marginLeft:"auto"}}>{filtMats.length} results</span>
         </div>
 
-        {/* Search */}
         <div style={{position:"relative",marginBottom:10}}>
-          <input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{...S.inp,paddingLeft:38,fontSize:13}}/>
-          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#555"}}>🔍</span>
+          <input placeholder="🔍  Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{...S.inp,fontSize:13}}/>
         </div>
 
-        {/* Filters — 2 column grid */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
           {[
             {k:"system",opts:["CBC","8-4-4"],lbl:"System"},
             {k:"level",opts:lvls,lbl:"Level"},
             {k:"subject",opts:fSubs.slice(0,14),lbl:"Subject"},
             {k:"type",opts:TYPES,lbl:"Type"},
           ].map(f=>(
-            <select key={f.k} value={filt[f.k]} onChange={e=>setFilt(p=>({...p,[f.k]:e.target.value,...(f.k==="system"?{level:"",subject:""}:{}),...(f.k==="level"?{subject:""}:{})}))} style={{...S.inp,cursor:"pointer",fontSize:13}}>
+            <select key={f.k} value={filt[f.k]} onChange={e=>setFilt(p=>({...p,[f.k]:e.target.value,...(f.k==="system"?{level:"",subject:""}:{}),...(f.k==="level"?{subject:""}:{})}))} style={{...S.inp,cursor:"pointer",fontSize:12}}>
               <option value="">All {f.lbl}s</option>
               {f.opts.map(o=><option key={o}>{o}</option>)}
             </select>
           ))}
         </div>
-        <button onClick={()=>{setFilt({system:"",level:"",subject:"",type:""});setSearch("");}} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",color:"#aaa",borderRadius:10,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:18}}>Clear Filters</button>
+        <button onClick={()=>{setFilt({system:"",level:"",subject:"",type:""});setSearch("");}} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",color:"#888",borderRadius:10,padding:"9px 0",cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:16}}>Clear Filters</button>
 
         {matsLoading?(
           <div style={{textAlign:"center",padding:"60px 0",color:"#555"}}>⏳ Loading…</div>
         ):filtMats.length===0?(
           <div style={{textAlign:"center",padding:"60px 0",color:"#666"}}>
             <div style={{fontSize:40,marginBottom:12}}>🔍</div>
-            <div style={{fontSize:15,fontWeight:600}}>No results found</div>
+            <div style={{fontSize:14,fontWeight:600}}>No results found</div>
           </div>
         ):(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {filtMats.map(m=><Card key={m.id} m={m}/>)}
           </div>
         )}
@@ -485,50 +459,54 @@ export default function App() {
   const Dash = () => {
     if (!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#555"}}>Loading profile…</div>;
     const expired = subscription?.reason==="expired";
+    const freeLeft = Math.max(0, 2 - (profile?.free_downloads_used||0));
     return (
-      <div style={{padding:"20px 16px"}}>
+      <div style={{padding:"20px 16px 40px"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
           <span style={{fontSize:18}}>👤</span>
-          <h2 style={{margin:0,fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>
+          <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>
         </div>
 
         {expired&&(
-          <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:14,padding:"16px",marginBottom:16}}>
+          <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:14,padding:"16px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#e74c3c",marginBottom:6}}>⚠️ Subscription Expired</div>
             <p style={{color:"#aaa",fontSize:13,margin:"0 0 12px"}}>Your {subscription.plan} plan expired. Renew to restore access.</p>
             <button onClick={()=>setModal("subscribe")} style={{...S.btn,padding:"11px 0"}}>Renew Now</button>
           </div>
         )}
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:20}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:16}}>
           {[
             {l:"System",v:profile.system,i:"📘"},
             {l:"Level",v:profile.level,i:"🎓"},
             {l:"Phone",v:profile.phone||"—",i:"📱"},
-            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":"No Plan",i:"💳",c:isSubscribed?"#27ae60":"#e74c3c"},
+            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":"Free",i:"💳",c:isSubscribed?"#27ae60":expired?"#e74c3c":"#ffb400"},
+            {l:"Free Left",v:isSubscribed?"Unlimited":`${freeLeft} downloads`,i:"📥"},
             {l:"Days Left",v:isSubscribed?`${subscription.daysLeft} days`:"—",i:"📅"},
           ].map(c=>(
-            <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:13,padding:"14px 12px"}}>
-              <div style={{fontSize:18,marginBottom:6}}>{c.i}</div>
+            <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:13,padding:"13px 12px"}}>
+              <div style={{fontSize:16,marginBottom:5}}>{c.i}</div>
               <div style={{fontSize:10,color:"#888",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div>
-              <div style={{fontSize:13,fontWeight:700,color:c.c||"#fff"}}>{c.v}</div>
+              <div style={{fontSize:12,fontWeight:700,color:c.c||"#fff"}}>{c.v}</div>
             </div>
           ))}
         </div>
 
         {!isSubscribed&&!expired&&(
-          <div style={{background:"rgba(255,180,0,0.07)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:14,padding:"16px",marginBottom:20}}>
+          <div style={{background:"rgba(255,180,0,0.07)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:14,padding:"16px",marginBottom:16}}>
             <div style={{fontWeight:700,color:"#ffb400",marginBottom:6}}>🚀 Unlock Full Access</div>
-            <p style={{color:"#aaa",fontSize:13,margin:"0 0 12px"}}>Subscribe via M-Pesa for unlimited downloads.</p>
+            <p style={{color:"#aaa",fontSize:13,margin:"0 0 12px"}}>You have {freeLeft} free download{freeLeft!==1?"s":""} left. Subscribe via M-Pesa for unlimited access.</p>
             <button onClick={()=>setModal("subscribe")} style={{...S.btn,padding:"11px 0"}}>Subscribe Now</button>
           </div>
         )}
 
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+        <button onClick={logout} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",color:"#888",borderRadius:10,padding:"11px 0",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:16}}>🚪 Logout</button>
+
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           <span style={{fontSize:16}}>📚</span>
-          <h3 style={{margin:0,fontSize:16,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3>
+          <h3 style={{margin:0,fontSize:15,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {mats.filter(m=>m.level===profile.level).slice(0,6).map(m=><Card key={m.id} m={m}/>)}
         </div>
       </div>
@@ -582,13 +560,12 @@ export default function App() {
     };
 
     return (
-      <div style={{padding:"20px 16px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
+      <div style={{padding:"20px 16px 40px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}>
           <span style={{fontSize:18}}>🛠</span>
-          <h2 style={{margin:0,fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Admin Dashboard</h2>
+          <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Admin Dashboard</h2>
         </div>
-
-        <div style={{display:"flex",gap:8,marginBottom:20,overflowX:"auto"}}>
+        <div style={{display:"flex",gap:8,marginBottom:18,overflowX:"auto"}}>
           {["upload","materials","analytics"].map(t=>(
             <button key={t} onClick={()=>setTab(t)} style={{
               background:tab===t?"rgba(255,180,0,0.12)":"rgba(255,255,255,0.04)",
@@ -603,36 +580,29 @@ export default function App() {
 
         {tab==="upload"&&(
           <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:18}}>
-            <h3 style={{color:"#fff",margin:"0 0 16px",fontSize:16}}>Upload New Material</h3>
+            <h3 style={{color:"#fff",margin:"0 0 14px",fontSize:15}}>Upload New Material</h3>
             <div style={{display:"grid",gap:12}}>
-              <div>
-                <label style={S.lbl}>Title</label>
-                <input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} style={S.inp} placeholder="e.g. Mathematics Notes – Grade 9"/>
-              </div>
+              <div><label style={S.lbl}>Title</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} style={S.inp} placeholder="e.g. Mathematics Notes – Grade 9"/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div>
-                  <label style={S.lbl}>System</label>
+                <div><label style={S.lbl}>System</label>
                   <select value={form.system} onChange={e=>setForm(p=>({...p,system:e.target.value,level:e.target.value==="CBC"?"Grade 1":"Form 1",subject:""}))} style={{...S.inp,cursor:"pointer"}}>
                     <option>CBC</option><option>8-4-4</option>
                   </select>
                 </div>
-                <div>
-                  <label style={S.lbl}>Level</label>
+                <div><label style={S.lbl}>Level</label>
                   <select value={form.level} onChange={e=>setForm(p=>({...p,level:e.target.value,subject:""}))} style={{...S.inp,cursor:"pointer"}}>
                     {aLvls.map(l=><option key={l}>{l}</option>)}
                   </select>
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div>
-                  <label style={S.lbl}>Subject</label>
+                <div><label style={S.lbl}>Subject</label>
                   <select value={form.subject} onChange={e=>setForm(p=>({...p,subject:e.target.value}))} style={{...S.inp,cursor:"pointer"}}>
                     <option value="">Select…</option>
                     {aSubs.map(s=><option key={s}>{s}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label style={S.lbl}>Type</label>
+                <div><label style={S.lbl}>Type</label>
                   <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...S.inp,cursor:"pointer"}}>
                     {TYPES.map(t=><option key={t}>{t}</option>)}
                   </select>
@@ -640,26 +610,13 @@ export default function App() {
               </div>
               <div>
                 <label style={S.lbl}>PDF File</label>
-                <div onClick={()=>document.getElementById("pdf-in").click()} style={{border:"2px dashed rgba(255,180,0,0.3)",borderRadius:12,padding:"22px 16px",textAlign:"center",cursor:"pointer",background:file?"rgba(39,174,96,0.05)":"rgba(255,180,0,0.02)"}}>
-                  {file?(
-                    <>
-                      <div style={{fontSize:22,marginBottom:5}}>📄</div>
-                      <div style={{color:"#27ae60",fontWeight:700,fontSize:13}}>{file.name}</div>
-                      <div style={{color:"#888",fontSize:11,marginTop:2}}>{(file.size/1024/1024).toFixed(1)} MB</div>
-                    </>
-                  ):(
-                    <>
-                      <div style={{fontSize:26,marginBottom:5}}>📁</div>
-                      <div style={{color:"#888",fontSize:13}}>Tap to select PDF</div>
-                      <div style={{color:"#555",fontSize:11,marginTop:2}}>Will be compressed & watermarked</div>
-                    </>
-                  )}
+                <div onClick={()=>document.getElementById("pdf-in").click()} style={{border:"2px dashed rgba(255,180,0,0.3)",borderRadius:12,padding:"20px 16px",textAlign:"center",cursor:"pointer",background:file?"rgba(39,174,96,0.05)":"rgba(255,180,0,0.02)"}}>
+                  {file?(<><div style={{fontSize:20,marginBottom:4}}>📄</div><div style={{color:"#27ae60",fontWeight:700,fontSize:13}}>{file.name}</div><div style={{color:"#888",fontSize:11,marginTop:2}}>{(file.size/1024/1024).toFixed(1)} MB</div></>)
+                  :(<><div style={{fontSize:24,marginBottom:4}}>📁</div><div style={{color:"#888",fontSize:13}}>Tap to select PDF</div><div style={{color:"#555",fontSize:11,marginTop:2}}>Will be compressed & watermarked</div></>)}
                 </div>
                 <input id="pdf-in" type="file" accept="application/pdf" onChange={handleFile} style={{display:"none"}}/>
               </div>
-              {progress&&(
-                <div style={{background:"rgba(255,180,0,0.07)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:9,padding:"10px 14px",fontSize:13,color:"#ffb400",textAlign:"center"}}>⏳ {progress}</div>
-              )}
+              {progress&&<div style={{background:"rgba(255,180,0,0.07)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:9,padding:"10px 14px",fontSize:13,color:"#ffb400",textAlign:"center"}}>⏳ {progress}</div>}
               <button onClick={upload} disabled={uploading} style={{...S.btn,opacity:uploading?0.7:1}}>
                 {uploading?`⏳ ${progress||"Uploading…"}`:"⬆ Upload, Compress & Watermark PDF"}
               </button>
@@ -669,24 +626,22 @@ export default function App() {
 
         {tab==="materials"&&(
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:500}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:480}}>
               <thead><tr style={{background:"rgba(255,180,0,0.05)"}}>
                 {["Title","System","Level","DLs","File","Del"].map(h=>(
-                  <th key={h} style={{padding:"10px 10px",textAlign:"left",color:"#ffb400",fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>
+                  <th key={h} style={{padding:"9px 10px",textAlign:"left",color:"#ffb400",fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {mats.slice(0,50).map((m,i)=>(
                   <tr key={m.id} style={{borderTop:"1px solid rgba(255,255,255,0.04)",background:i%2?"rgba(255,255,255,0.01)":"transparent"}}>
-                    <td style={{padding:"9px 10px",color:"#fff",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</td>
-                    <td style={{padding:"9px 10px",color:"#aaa"}}>{m.system}</td>
-                    <td style={{padding:"9px 10px",color:"#aaa"}}>{m.level}</td>
-                    <td style={{padding:"9px 10px",color:"#ffb400",fontWeight:700}}>{m.downloads||0}</td>
-                    <td style={{padding:"9px 10px"}}>
-                      {m.file_url?<a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{color:"#3498db",fontSize:11}}>🔗</a>:<span style={{color:"#555"}}>—</span>}
-                    </td>
-                    <td style={{padding:"9px 10px"}}>
-                      <button onClick={async()=>{await supabase.from("materials").delete().eq("id",m.id);setMats(p=>p.filter(x=>x.id!==m.id));showToast("Deleted");}} style={{background:"rgba(231,76,60,0.14)",border:"1px solid rgba(231,76,60,0.25)",color:"#e74c3c",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Del</button>
+                    <td style={{padding:"8px 10px",color:"#fff",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</td>
+                    <td style={{padding:"8px 10px",color:"#aaa"}}>{m.system}</td>
+                    <td style={{padding:"8px 10px",color:"#aaa"}}>{m.level}</td>
+                    <td style={{padding:"8px 10px",color:"#ffb400",fontWeight:700}}>{m.downloads||0}</td>
+                    <td style={{padding:"8px 10px"}}>{m.file_url?<a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{color:"#3498db",fontSize:11}}>🔗</a>:<span style={{color:"#555"}}>—</span>}</td>
+                    <td style={{padding:"8px 10px"}}>
+                      <button onClick={async()=>{await supabase.from("materials").delete().eq("id",m.id);setMats(p=>p.filter(x=>x.id!==m.id));showToast("Deleted");}} style={{background:"rgba(231,76,60,0.14)",border:"1px solid rgba(231,76,60,0.25)",color:"#e74c3c",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11}}>Del</button>
                     </td>
                   </tr>
                 ))}
@@ -705,10 +660,10 @@ export default function App() {
               {l:"Notes",v:mats.filter(m=>m.type==="Notes").length,i:"📝"},
               {l:"Past Papers",v:mats.filter(m=>m.type==="Past Papers").length,i:"📄"},
             ].map(c=>(
-              <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:13,padding:"16px 13px"}}>
-                <div style={{fontSize:20,marginBottom:7}}>{c.i}</div>
+              <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:13,padding:"14px 12px"}}>
+                <div style={{fontSize:18,marginBottom:6}}>{c.i}</div>
                 <div style={{fontSize:10,color:"#888",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div>
-                <div style={{fontSize:20,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{c.v}</div>
+                <div style={{fontSize:18,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{c.v}</div>
               </div>
             ))}
           </div>
@@ -732,7 +687,7 @@ export default function App() {
     return(
       <div>
         <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Welcome Back</h2>
-        <p style={{color:"#888",fontSize:13,margin:"0 0 20px"}}>Login to your Toppluss account</p>
+        <p style={{color:"#888",fontSize:13,margin:"0 0 18px"}}>Login to your Toppluss account</p>
         <div style={{display:"grid",gap:12}}>
           <div><label style={S.lbl}>Email</label><input type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} style={S.inp} placeholder="you@example.com"/></div>
           <div><label style={S.lbl}>Password</label><input type="password" value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={S.inp} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&go()}/></div>
@@ -754,13 +709,13 @@ export default function App() {
       setLd(true);
       const{error}=await supabase.auth.signUp({email:f.email,password:f.password,options:{data:{full_name:f.name,phone:f.phone,system:f.system,level:f.level}}});
       if(error) showToast("Registration failed: "+error.message,"err");
-      else{showToast("🎉 Registered successfully!");setModal(null);setPage("dash");}
+      else{showToast("🎉 Registered! You have 2 free downloads.");setModal(null);setPage("dash");}
       setLd(false);
     };
     return(
       <div>
         <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Create Account</h2>
-        <p style={{color:"#888",fontSize:12,margin:"0 0 18px"}}>Free trial included — no card needed</p>
+        <p style={{color:"#888",fontSize:12,margin:"0 0 16px"}}>2 free downloads included — no card needed</p>
         <div style={{display:"grid",gap:11}}>
           <div><label style={S.lbl}>Full Name</label><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} style={S.inp} placeholder="Jane Mwangi"/></div>
           <div><label style={S.lbl}>Email</label><input type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} style={S.inp} placeholder="jane@example.com"/></div>
@@ -778,7 +733,7 @@ export default function App() {
               </select>
             </div>
           </div>
-          <button onClick={go} disabled={ld} style={{...S.btn,opacity:ld?0.7:1,marginTop:4}}>{ld?"Creating account…":"Register & Start Free Trial"}</button>
+          <button onClick={go} disabled={ld} style={{...S.btn,opacity:ld?0.7:1,marginTop:4}}>{ld?"Creating account…":"Register & Get 2 Free Downloads"}</button>
           <p style={{textAlign:"center",fontSize:12,color:"#888",margin:0}}>Have account? <button onClick={()=>setModal("login")} style={{background:"none",border:"none",color:"#ffb400",cursor:"pointer",fontWeight:700,fontSize:12}}>Login</button></p>
         </div>
       </div>
@@ -811,7 +766,7 @@ export default function App() {
           <div style={{textAlign:"center",padding:"20px 0"}}>
             <div style={{fontSize:56,marginBottom:12}}>🎉</div>
             <h2 style={{color:"#ffb400",fontFamily:"'Playfair Display',serif",margin:"0 0 8px"}}>Subscribed!</h2>
-            <p style={{color:"#aaa",marginBottom:20,fontSize:14}}>Your {plan} plan is active!</p>
+            <p style={{color:"#aaa",marginBottom:20,fontSize:14}}>Your {plan} plan is now active!</p>
             <button onClick={()=>{setModal(null);setPage("browse");}} style={S.btn}>Browse Materials</button>
           </div>
         ):step==="mpesa"?(
@@ -824,7 +779,7 @@ export default function App() {
         ):(
           <div>
             <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Subscribe via M-Pesa</h2>
-            <p style={{color:"#888",fontSize:12,margin:"0 0 18px"}}>Instant activation after payment</p>
+            <p style={{color:"#888",fontSize:12,margin:"0 0 16px"}}>Instant activation after payment</p>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
               {[{k:"weekly",l:"Weekly",p:"KSh 50",d:"7 days"},{k:"monthly",l:"Monthly",p:"KSh 150",d:"30 days"}].map(pl=>(
                 <div key={pl.k} onClick={()=>setPlan(pl.k)} style={{border:`2px solid ${plan===pl.k?"#ffb400":"rgba(255,255,255,0.09)"}`,borderRadius:12,padding:"14px 10px",cursor:"pointer",textAlign:"center",background:plan===pl.k?"rgba(255,180,0,0.07)":"transparent"}}>
@@ -847,50 +802,61 @@ export default function App() {
     );
   };
 
+  // Gate modal — for guests trying to download
   const GateM = () => (
     <div style={{textAlign:"center",padding:"12px 0"}}>
       <div style={{fontSize:50,marginBottom:12}}>🔒</div>
-      <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 8px",fontSize:20}}>Download Limit Reached</h2>
+      <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 8px",fontSize:20}}>Register to Download</h2>
       <p style={{color:"#aaa",fontSize:13,margin:"0 0 20px",lineHeight:1.65}}>
-        You've used your <strong style={{color:"#ffb400"}}>1 free download</strong>.<br/>Register or subscribe to continue.
+        Create a free account and get <strong style={{color:"#ffb400"}}>2 free downloads</strong> instantly.
       </p>
       <div style={{display:"grid",gap:10}}>
-        <button onClick={()=>setModal("register")} style={S.btn}>Register Free</button>
-        <button onClick={()=>setModal("login")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:12,fontWeight:700,cursor:"pointer",fontSize:14}}>Login</button>
+        <button onClick={()=>setModal("register")} style={S.btn}>Register Free — Get 2 Downloads</button>
+        <button onClick={()=>setModal("login")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:12,fontWeight:700,cursor:"pointer",fontSize:14}}>Already have account? Login</button>
       </div>
     </div>
   );
 
   const PreviewM = () => {
     if(!prevMat) return null;
+    // Guests see 1 page indicator, registered see 2
+    const canSeeTwoPages = !!user;
     return(
       <div>
-        <div style={{display:"flex",gap:12,marginBottom:16,alignItems:"center"}}>
+        <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"center"}}>
           <Cover m={prevMat}/>
           <div>
             <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase"}}>{prevMat.system} · {prevMat.level}</div>
-            <div style={{fontSize:14,fontWeight:700,color:"#fff",margin:"3px 0"}}>{prevMat.title}</div>
-            <div style={{fontSize:12,color:"#888"}}>{prevMat.subject} · {prevMat.type}</div>
+            <div style={{fontSize:13,fontWeight:700,color:"#fff",margin:"3px 0"}}>{prevMat.title}</div>
+            <div style={{fontSize:11,color:"#888"}}>{prevMat.subject} · {prevMat.type}</div>
           </div>
         </div>
-        <div style={{background:"#fff",borderRadius:12,padding:18,marginBottom:14,minHeight:220,position:"relative",overflow:"hidden"}}>
-          <div style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,textAlign:"center",marginBottom:12,color:"#111"}}>{prevMat.title}</div>
-          <div style={{fontSize:12,color:"#333",lineHeight:1.8}}>
+        <div style={{background:"#fff",borderRadius:12,padding:16,marginBottom:12,minHeight:200,position:"relative",overflow:"hidden"}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:14,fontWeight:700,textAlign:"center",marginBottom:10,color:"#111"}}>{prevMat.title}</div>
+          <div style={{fontSize:11,color:"#333",lineHeight:1.8}}>
             <p><strong>1. Introduction</strong></p>
             <p>This material covers essential concepts for <strong>{prevMat.subject}</strong> at <strong>{prevMat.level}</strong>.</p>
-            <p><strong>2. Learning Outcomes</strong></p>
-            <p>By the end of this unit, learners will be able to apply core principles…</p>
+            {canSeeTwoPages&&<><p><strong>2. Learning Outcomes</strong></p><p>By the end of this unit, learners will be able to apply core principles and demonstrate understanding through practice exercises…</p></>}
           </div>
-          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%) rotate(-28deg)",opacity:0.14,fontSize:14,fontWeight:900,color:"#000",whiteSpace:"nowrap",pointerEvents:"none",letterSpacing:1}}>
+          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%) rotate(-28deg)",opacity:0.12,fontSize:13,fontWeight:900,color:"#000",whiteSpace:"nowrap",pointerEvents:"none",letterSpacing:1}}>
             www.topplussrevisions.top
           </div>
-          <div style={{position:"absolute",bottom:0,left:0,right:0,height:80,background:"linear-gradient(transparent,rgba(255,255,255,0.97))",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:8}}>
-            <span style={{fontSize:11,color:"#888",fontStyle:"italic"}}>…preview ends here. Download to read full document.</span>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:70,background:"linear-gradient(transparent,rgba(255,255,255,0.97))",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:8}}>
+            <span style={{fontSize:10,color:"#888",fontStyle:"italic"}}>
+              {canSeeTwoPages?"Showing 2 pages — download for full document":"Register free to see 2 pages preview"}
+            </span>
           </div>
         </div>
+        {!user&&(
+          <div style={{background:"rgba(255,180,0,0.07)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:12,textAlign:"center"}}>
+            <span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free to unlock 2-page preview + 2 free downloads</span>
+          </div>
+        )}
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setModal(null)} style={{flex:1,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"12px 0",borderRadius:10,cursor:"pointer",fontWeight:600}}>Close</button>
-          <button onClick={()=>{setModal(null);handleDL(prevMat);}} style={{flex:2,...S.btn,padding:"12px 0",borderRadius:10}}>⬇ Download Full</button>
+          <button onClick={()=>setModal(null)} style={{flex:1,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"12px 0",borderRadius:10,cursor:"pointer",fontWeight:600,fontSize:13}}>Close</button>
+          <button onClick={()=>{setModal(null);user?handleDL(prevMat):setModal("gate");}} style={{flex:2,...S.btn,padding:"12px 0",borderRadius:10,fontSize:13}}>
+            {user?"⬇ Download Full":"Register to Download"}
+          </button>
         </div>
       </div>
     );
@@ -901,38 +867,16 @@ export default function App() {
     <div style={{minHeight:"100vh",background:"#080e1c",color:"#fff",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet"/>
       <Nav/>
-      {/* Tap outside menu to close */}
-      {menuOpen&&<div onClick={()=>setMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:198}}/>}
-      <main style={{paddingBottom:80}}>
+      <main style={{paddingBottom:20}}>
         {page==="home"&&<Home/>}
         {page==="browse"&&<Browse/>}
         {page==="dash"&&<Dash/>}
         {page==="admin"&&isAdmin&&<Admin/>}
       </main>
 
-      {/* Bottom nav bar */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(8,14,28,0.98)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",height:60,zIndex:150}}>
-        {[
-          {p:"home",i:"🏠",l:"Home"},
-          {p:"browse",i:"📚",l:"Browse"},
-          ...(user?[{p:"dash",i:"👤",l:"Account"}]:[{p:"__login",i:"🔑",l:"Login"}]),
-          ...(isAdmin?[{p:"admin",i:"🛠",l:"Admin"}]:[]),
-        ].map(({p,i,l})=>(
-          <button key={p} onClick={()=>{if(p==="__login")setModal("login");else setPage(p);setMenuOpen(false);}} style={{
-            flex:1,background:"none",border:"none",cursor:"pointer",
-            display:"flex",flexDirection:"column",alignItems:"center",
-            justifyContent:"center",gap:2,
-            color:page===p?"#ffb400":"#666",
-          }}>
-            <span style={{fontSize:18}}>{i}</span>
-            <span style={{fontSize:10,fontWeight:700}}>{l}</span>
-          </button>
-        ))}
-      </div>
-
       {/* WhatsApp */}
       <a href="https://wa.me/254755803149?text=Hello%2C%20I%20need%20help%20with%20Toppluss%20Revisions" target="_blank" rel="noopener noreferrer"
-        style={{position:"fixed",bottom:72,right:16,width:48,height:48,background:"#25D366",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px rgba(37,211,102,0.45)",zIndex:140,textDecoration:"none",fontSize:24}}>
+        style={{position:"fixed",bottom:20,right:16,width:48,height:48,background:"#25D366",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px rgba(37,211,102,0.45)",zIndex:140,textDecoration:"none",fontSize:24}}>
         💬
       </a>
 
