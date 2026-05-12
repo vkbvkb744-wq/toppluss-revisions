@@ -1,6 +1,40 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
+// ── Global dark background fix (prevents white overscroll/flash on mobile) ──
+const style = document.createElement("style");
+style.textContent = `
+  html, body, #root {
+    background-color: #080e1c !important;
+    margin: 0;
+  }
+  html {
+    overscroll-behavior: none;
+  }
+  body {
+    min-height: 100dvh;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root {
+    min-height: 100dvh;
+  }
+  * { box-sizing: border-box; }
+`;
+document.head.appendChild(style);
+
+// Also set theme-color meta for Android browser chrome
+const themeMeta = document.querySelector('meta[name="theme-color"]') || document.createElement("meta");
+themeMeta.setAttribute("name", "theme-color");
+themeMeta.setAttribute("content", "#080e1c");
+if (!document.querySelector('meta[name="theme-color"]')) document.head.appendChild(themeMeta);
+
+const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]') || document.createElement("meta");
+colorSchemeMeta.setAttribute("name", "color-scheme");
+colorSchemeMeta.setAttribute("content", "dark");
+if (!document.querySelector('meta[name="color-scheme"]')) document.head.appendChild(colorSchemeMeta);
+// ── End dark fix ──────────────────────────────────────────────────────────────
+
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -189,14 +223,13 @@ export default function App() {
     setPage("home");showToast("Logged out");
   };
 
-  // ── Card — full width single column like lovable ─────────────────────────
   const icons = {Notes:"📝","Past Papers":"📄","Marking Schemes":"✅"};
+
   const Card = ({m})=>(
     <div style={{
       background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",
       borderRadius:14,overflow:"hidden",display:"flex",alignItems:"stretch",
     }}>
-      {/* Colored left strip with icon */}
       <div style={{
         width:60,flexShrink:0,
         background:`linear-gradient(180deg,${m.color}cc,${m.color}55)`,
@@ -207,7 +240,6 @@ export default function App() {
         <div style={{fontSize:7,color:"#fff",fontWeight:700,opacity:0.7,textTransform:"uppercase",letterSpacing:0.5}}>{m.system}</div>
         <div style={{position:"absolute",bottom:3,fontSize:6,color:"#fff",opacity:0.18,fontStyle:"italic"}}>topplussrevisions.top</div>
       </div>
-      {/* Content */}
       <div style={{flex:1,padding:"11px 12px",minWidth:0}}>
         <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{m.system} · {m.level}</div>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</div>
@@ -217,7 +249,6 @@ export default function App() {
           <button onClick={()=>handleDL(m)} style={{flex:1,background:"linear-gradient(135deg,#ffb400,#ff7b00)",border:"none",color:"#000",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:800,fontSize:11}}>⬇ Download</button>
         </div>
       </div>
-      {/* Download count */}
       <div style={{padding:"11px 10px 11px 0",display:"flex",flexDirection:"column",justifyContent:"flex-end",flexShrink:0}}>
         <span style={{fontSize:10,color:"#444"}}>⬇ {(m.downloads||0).toLocaleString()}</span>
         {m.pages&&<span style={{fontSize:9,color:"#333",marginTop:2}}>{m.pages}p</span>}
@@ -225,21 +256,18 @@ export default function App() {
     </div>
   );
 
-  // ── Nav — exactly like lovable: logo top, links below ────────────────────
   const Nav = ()=>(
     <nav style={{
       position:"sticky",top:0,zIndex:200,
       background:"rgba(8,14,28,0.98)",backdropFilter:"blur(16px)",
       borderBottom:"1px solid rgba(255,180,0,0.1)",
     }}>
-      {/* Top row: logo */}
       <div style={{padding:"10px 16px 6px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div onClick={()=>setPage("home")} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
           <div style={{width:32,height:32,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:"#000",flexShrink:0}}>T+</div>
           <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:16,color:"#fff"}}>Toppluss <span style={{color:"#ffb400"}}>Revisions</span></span>
         </div>
       </div>
-      {/* Bottom row: links */}
       <div style={{padding:"0 16px 10px",display:"flex",alignItems:"center",gap:12,flexWrap:"nowrap",overflowX:"auto"}}>
         <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:page==="home"?"#ffb400":"#bbb",cursor:"pointer",fontWeight:600,fontSize:13,padding:0,whiteSpace:"nowrap",flexShrink:0}}>🏠 Home</button>
         <button onClick={()=>setPage("browse")} style={{background:"none",border:"none",color:page==="browse"?"#ffb400":"#bbb",cursor:"pointer",fontWeight:600,fontSize:13,padding:0,whiteSpace:"nowrap",flexShrink:0}}>📚 Browse</button>
@@ -260,7 +288,6 @@ export default function App() {
     </nav>
   );
 
-  // ── Section header ────────────────────────────────────────────────────────
   const SectionHead = ({icon,title,sub})=>(
     <div style={{marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
@@ -271,10 +298,8 @@ export default function App() {
     </div>
   );
 
-  // ── Home ──────────────────────────────────────────────────────────────────
   const Home = ()=>(
-    <div style={{background:"#080e1c",minHeight:"100vh"}}>
-      {/* Hero */}
+    <div style={{background:"#080e1c",minHeight:"100dvh"}}>
       <div style={{position:"relative",padding:"44px 20px 48px",textAlign:"center",overflow:"hidden"}}>
         <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse 80% 50% at 50% 0%,rgba(255,180,0,0.08),transparent)",pointerEvents:"none"}}/>
         <div style={{display:"inline-block",background:"rgba(255,180,0,0.1)",border:"1px solid rgba(255,180,0,0.28)",borderRadius:50,padding:"5px 16px",fontSize:11,color:"#ffb400",fontWeight:700,marginBottom:16,textTransform:"uppercase",letterSpacing:1.2}}>Kenya's #1 Revision Platform</div>
@@ -288,7 +313,6 @@ export default function App() {
           <button onClick={()=>setPage("browse")} style={btnPrimary}>Browse Materials →</button>
           {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}}>Register Free</button>}
         </div>
-        {/* Stats */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,maxWidth:320,margin:"0 auto"}}>
           {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["2 Free","Downloads"],["KSh 50","From /week"]].map(([n,l])=>(
             <div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}>
@@ -299,7 +323,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Search */}
       <div style={{padding:"0 16px 18px"}}>
         <div style={{position:"relative"}}>
           <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,color:"#444"}}>🔍</span>
@@ -307,7 +330,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Most Downloaded */}
       {!loading&&topDL.length>0&&(
         <div style={{padding:"0 16px 30px"}}>
           <SectionHead icon="🔥" title="Most Downloaded" sub="Most popular revision materials"/>
@@ -317,7 +339,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Latest */}
       {!loading&&latest.length>0&&(
         <div style={{padding:"0 16px 30px"}}>
           <SectionHead icon="🆕" title="Latest Uploads" sub="Freshly added content"/>
@@ -334,7 +355,6 @@ export default function App() {
         <div style={{fontSize:14,fontWeight:600,color:"#555"}}>No materials yet — check back soon!</div>
       </div>}
 
-      {/* Plans */}
       <div style={{padding:"24px 16px 36px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
         <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -362,7 +382,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Footer */}
       <div style={{background:"#05090f",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"22px 16px 30px",textAlign:"center"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:6}}>
           <div style={{width:26,height:26,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,color:"#000"}}>T+</div>
@@ -375,11 +394,10 @@ export default function App() {
     </div>
   );
 
-  // ── Browse ────────────────────────────────────────────────────────────────
   const Browse = ()=>{
     const lvls = filt.system==="CBC"?LEVELS_CBC:filt.system==="8-4-4"?LEVELS_844:[...LEVELS_CBC,...LEVELS_844];
     return(
-      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100vh"}}>
+      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
           <span style={{fontSize:18}}>📚</span>
           <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Browse Materials</h2>
@@ -419,13 +437,12 @@ export default function App() {
     );
   };
 
-  // ── Dashboard ─────────────────────────────────────────────────────────────
   const Dash = ()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired = subscription?.reason==="expired";
     const freeLeft = Math.max(0,2-(profile?.free_downloads_used||0));
     return(
-      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100vh"}}>
+      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}>
           <span style={{fontSize:18}}>👤</span>
           <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>
@@ -472,7 +489,6 @@ export default function App() {
     );
   };
 
-  // ── Admin ─────────────────────────────────────────────────────────────────
   const Admin = ()=>{
     const [tab,setTab]=useState("upload");
     const [form,setForm]=useState({title:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"});
@@ -501,7 +517,7 @@ export default function App() {
     };
 
     return(
-      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100vh"}}>
+      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
           <span style={{fontSize:18}}>🛠</span>
           <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Admin Dashboard</h2>
@@ -581,7 +597,6 @@ export default function App() {
     );
   };
 
-  // ── Modals ────────────────────────────────────────────────────────────────
   const LoginM = ()=>{
     const [f,setF]=useState({email:"",password:""});
     const [ld,setLd]=useState(false);
@@ -756,9 +771,8 @@ export default function App() {
     );
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return(
-    <div style={{minHeight:"100vh",background:"#080e1c",color:"#fff",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
+    <div style={{minHeight:"100dvh",background:"#080e1c",color:"#fff",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet"/>
       <Nav/>
       <main>
@@ -767,7 +781,6 @@ export default function App() {
         {page==="dash"&&<Dash/>}
         {page==="admin"&&isAdmin&&<Admin/>}
       </main>
-      {/* WhatsApp */}
       <a href="https://wa.me/254755803149?text=Hello%2C%20I%20need%20help%20with%20Toppluss%20Revisions" target="_blank" rel="noopener noreferrer"
         style={{position:"fixed",bottom:20,right:16,width:48,height:48,background:"#25D366",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(37,211,102,0.4)",zIndex:140,textDecoration:"none",fontSize:24}}>
         💬
