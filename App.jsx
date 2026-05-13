@@ -122,25 +122,20 @@ export default function App() {
   const [prevMat, setPrevMat] = useState(null);
   const [toast, setToast]     = useState({msg:"",type:"ok"});
 
-  // ── Dark background fix — safe inside useEffect ──
+  // Dark background fix
   useEffect(()=>{
-    document.documentElement.style.backgroundColor = "#080e1c";
-    document.body.style.backgroundColor = "#080e1c";
-    document.body.style.margin = "0";
-    document.body.style.minHeight = "100dvh";
-    document.body.style.overscrollBehavior = "none";
-    document.body.style.webkitFontSmoothing = "antialiased";
-    const root = document.getElementById("root");
-    if(root){ root.style.backgroundColor="#080e1c"; root.style.minHeight="100dvh"; }
-    let tm = document.querySelector('meta[name="theme-color"]');
-    if(!tm){ tm=document.createElement("meta"); tm.setAttribute("name","theme-color"); document.head.appendChild(tm); }
+    document.documentElement.style.backgroundColor="#080e1c";
+    document.body.style.backgroundColor="#080e1c";
+    document.body.style.margin="0";
+    document.body.style.overscrollBehavior="none";
+    const root=document.getElementById("root");
+    if(root) root.style.backgroundColor="#080e1c";
+    let tm=document.querySelector('meta[name="theme-color"]');
+    if(!tm){tm=document.createElement("meta");tm.setAttribute("name","theme-color");document.head.appendChild(tm);}
     tm.setAttribute("content","#080e1c");
-    let cs = document.querySelector('meta[name="color-scheme"]');
-    if(!cs){ cs=document.createElement("meta"); cs.setAttribute("name","color-scheme"); document.head.appendChild(cs); }
-    cs.setAttribute("content","dark");
   },[]);
 
-  const showToast = (msg,type="ok") => {
+  const showToast = (msg,type="ok")=>{
     setToast({msg,type});
     setTimeout(()=>setToast({msg:"",type:"ok"}),3500);
   };
@@ -158,7 +153,7 @@ export default function App() {
 
   useEffect(()=>{loadMats();},[]);
 
-  const loadMats = async()=>{
+  const loadMats=async()=>{
     setLoading(true);
     const{data,error}=await supabase.from("materials").select("*").order("created_at",{ascending:false});
     if(!error) setMats((data||[]).map((m,i)=>({...m,color:COLORS[i%COLORS.length]})));
@@ -166,12 +161,12 @@ export default function App() {
     setLoading(false);
   };
 
-  const loadProfile = async(id)=>{
+  const loadProfile=async(id)=>{
     const{data}=await supabase.from("profiles").select("*").eq("id",id).single();
     if(data) setProfile(data);
   };
 
-  const checkSub = async(id)=>{
+  const checkSub=async(id)=>{
     try{
       const res=await fetch("/.netlify/functions/check-subscription",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:id})});
       const data=await res.json();
@@ -180,11 +175,11 @@ export default function App() {
     }catch(e){console.error(e);}
   };
 
-  const isSubscribed = subscription?.active===true;
-  const isAdmin      = profile?.role==="admin";
-  const userName     = profile?.full_name||user?.email?.split("@")[0]||"Student";
+  const isSubscribed=subscription?.active===true;
+  const isAdmin=profile?.role==="admin";
+  const userName=profile?.full_name||user?.email?.split("@")[0]||"Student";
 
-  const filtMats = mats.filter(m=>{
+  const filtMats=mats.filter(m=>{
     if(profile?.system&&!isAdmin&&m.system!==profile.system) return false;
     if(filt.system&&m.system!==filt.system) return false;
     if(filt.level&&m.level!==filt.level) return false;
@@ -194,10 +189,10 @@ export default function App() {
     return true;
   });
 
-  const topDL  = [...mats].sort((a,b)=>b.downloads-a.downloads).slice(0,6);
-  const latest = [...mats].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,6);
+  const topDL=[...mats].sort((a,b)=>b.downloads-a.downloads).slice(0,6);
+  const latest=[...mats].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,6);
 
-  const doDownload = async(mat)=>{
+  const doDownload=async(mat)=>{
     await supabase.from("materials").update({downloads:(mat.downloads||0)+1}).eq("id",mat.id);
     setMats(p=>p.map(m=>m.id===mat.id?{...m,downloads:(m.downloads||0)+1}:m));
     if(user) await supabase.from("download_logs").insert([{user_id:user.id,material_id:mat.id}]);
@@ -208,7 +203,7 @@ export default function App() {
     } else showToast("File not available yet","err");
   };
 
-  const handleDL = async(mat)=>{
+  const handleDL=async(mat)=>{
     if(isAdmin||isSubscribed){doDownload(mat);return;}
     if(!user){setModal("gate");return;}
     const used=profile?.free_downloads_used||0;
@@ -222,13 +217,13 @@ export default function App() {
     }
   };
 
-  const logout = async()=>{
+  const logout=async()=>{
     await supabase.auth.signOut();
     setUser(null);setProfile(null);setSub(null);
     setPage("home");showToast("Logged out");
   };
 
-  const getIcon = (type)=>({
+  const getIcon=(type)=>({
     "Notes":"📝","Past Papers":"📄","Marking Schemes":"✅","Assignments":"📋",
     "Holiday Assignments":"🏖️","Revision Papers":"📑","Exams":"📝","CATs":"✍️",
     "Lesson Plans":"🗓️","Schemes of Work":"📅","Projects":"🔬","Practical Papers":"🧪",
@@ -236,7 +231,7 @@ export default function App() {
     "Mock Exams":"🎯","KCPE Papers":"🏫","KCSE Papers":"🎓","CBC Assessments":"📊",
   }[type]||"📄");
 
-  const Card = ({m})=>(
+  const Card=({m})=>(
     <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,overflow:"hidden",display:"flex",alignItems:"stretch"}}>
       <div style={{width:60,flexShrink:0,background:`linear-gradient(180deg,${m.color}cc,${m.color}55)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,position:"relative"}}>
         <div style={{fontSize:20}}>{getIcon(m.type)}</div>
@@ -260,7 +255,7 @@ export default function App() {
     </div>
   );
 
-  const Nav = ()=>(
+  const Nav=()=>(
     <nav style={{position:"sticky",top:0,zIndex:200,background:"rgba(8,14,28,0.98)",backdropFilter:"blur(16px)",borderBottom:"1px solid rgba(255,180,0,0.1)"}}>
       <div style={{padding:"10px 16px 6px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div onClick={()=>setPage("home")} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
@@ -287,7 +282,7 @@ export default function App() {
     </nav>
   );
 
-  const SectionHead = ({icon,title,sub})=>(
+  const SectionHead=({icon,title,sub})=>(
     <div style={{marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
         <span style={{fontSize:18}}>{icon}</span>
@@ -297,7 +292,7 @@ export default function App() {
     </div>
   );
 
-  const Home = ()=>(
+  const Home=()=>(
     <div style={{background:"#080e1c",minHeight:"100dvh"}}>
       <div style={{position:"relative",padding:"44px 20px 48px",textAlign:"center",overflow:"hidden"}}>
         <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse 80% 50% at 50% 0%,rgba(255,180,0,0.08),transparent)",pointerEvents:"none"}}/>
@@ -321,14 +316,12 @@ export default function App() {
           ))}
         </div>
       </div>
-
       <div style={{padding:"0 16px 18px"}}>
         <div style={{position:"relative"}}>
           <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,color:"#444"}}>🔍</span>
           <input placeholder="Search notes, past papers, subjects…" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&search)setPage("browse");}} style={{...inp,paddingLeft:38,fontSize:13,background:"rgba(255,255,255,0.05)"}}/>
         </div>
       </div>
-
       {!loading&&topDL.length>0&&(
         <div style={{padding:"0 16px 30px"}}>
           <SectionHead icon="🔥" title="Most Downloaded" sub="Most popular revision materials"/>
@@ -347,7 +340,6 @@ export default function App() {
         <div style={{fontSize:40,marginBottom:10}}>📚</div>
         <div style={{fontSize:14,fontWeight:600,color:"#555"}}>No materials yet — check back soon!</div>
       </div>}
-
       <div style={{padding:"24px 16px 36px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
         <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -372,7 +364,6 @@ export default function App() {
           ))}
         </div>
       </div>
-
       <div style={{background:"#05090f",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"22px 16px 30px",textAlign:"center"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:6}}>
           <div style={{width:26,height:26,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,color:"#000"}}>T+</div>
@@ -386,7 +377,7 @@ export default function App() {
     </div>
   );
 
-  const Browse = ()=>{
+  const Browse=()=>{
     const lvls=filt.system==="CBC"?LEVELS_CBC:filt.system==="8-4-4"?LEVELS_844:[...LEVELS_CBC,...LEVELS_844];
     const bSubs=filt.level?[...(SUBS_CBC[filt.level]||[]),...(SUBS_844[filt.level]||[])]:([...new Set([...SUBS_CBC_LIST,...SUBS_844_LIST])].sort());
     return(
@@ -421,7 +412,7 @@ export default function App() {
     );
   };
 
-  const Dash = ()=>{
+  const Dash=()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired=subscription?.reason==="expired";
     const freeLeft=Math.max(0,2-(profile?.free_downloads_used||0));
@@ -473,11 +464,16 @@ export default function App() {
     );
   };
 
-  const Admin = ()=>{
+  const Admin=()=>{
     const [tab,setTab]=useState("upload");
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
     const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"});
-    const [file,setFile]=useState(null);
+
+    // ── File stored in memory immediately so Android can't lose it ──
+    const [fileBase64,setFileBase64]=useState(null);
+    const [fileName,setFileName]=useState("");
+    const [fileSize,setFileSize]=useState(0);
+
     const [uploading,setUploading]=useState(false);
     const [progress,setProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
@@ -485,23 +481,48 @@ export default function App() {
 
     useEffect(()=>{sessionStorage.setItem("adminForm",JSON.stringify(form));},[form]);
 
+    const clearFile=()=>{setFileBase64(null);setFileName("");setFileSize(0);};
+
+    const handleFileSelect=(e)=>{
+      const f=e.target.files[0];
+      if(!f||f.type!=="application/pdf"){showToast("Select a PDF file","err");clearFile();return;}
+      setFileName(f.name);
+      setFileSize(f.size);
+      // Read into base64 IMMEDIATELY — before Android can kill the reference
+      const reader=new FileReader();
+      reader.onload=()=>{
+        setFileBase64(reader.result.split(",")[1]);
+        showToast("✅ File loaded — ready to upload!");
+      };
+      reader.onerror=()=>showToast("Could not read file","err");
+      reader.readAsDataURL(f);
+    };
+
     const upload=async()=>{
       if(!form.title||!form.subject){showToast("Fill all fields","err");return;}
-      if(!file){showToast("Select a PDF","err");return;}
-      setUploading(true);setProgress("Reading file…");
+      if(!fileBase64){showToast("Please select a PDF file","err");return;}
+      setUploading(true);setProgress("Uploading…");
       try{
-        const base64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej(new Error("Read failed"));r.readAsDataURL(file);});
         setProgress("Compressing & watermarking…");
-        const res=await fetch("/.netlify/functions/watermark-upload",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fileBase64:base64,fileName:file.name,metadata:{...form,pages:null}})});
+        const res=await fetch("/.netlify/functions/watermark-upload",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({fileBase64,fileName,metadata:{...form,pages:null}}),
+        });
         const data=await res.json();
         if(!res.ok||!data.success) throw new Error(data.error||"Upload failed");
         const saved=data.savedPercent>0?` Compressed ${data.savedPercent}%`:"";
         showToast("✅ Uploaded!"+saved);
         const cleared={title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"};
-        setForm(cleared);sessionStorage.removeItem("adminForm");setFile(null);
+        setForm(cleared);
+        sessionStorage.removeItem("adminForm");
+        clearFile();
         await loadMats();
-      }catch(err){showToast("Upload failed: "+err.message,"err");}
-      finally{setUploading(false);setProgress("");}
+      }catch(err){
+        showToast("Upload failed: "+err.message,"err");
+      }finally{
+        setUploading(false);setProgress("");
+      }
     };
 
     return(
@@ -517,6 +538,7 @@ export default function App() {
             </button>
           ))}
         </div>
+
         {tab==="upload"&&(
           <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:16}}>
             {(form.title||form.subject)&&(
@@ -535,19 +557,35 @@ export default function App() {
                 <div><label style={lbl}>Subject</label><select value={form.subject} onChange={e=>setForm(p=>({...p,subject:e.target.value}))} style={{...inp,cursor:"pointer"}}><option value="">Select…</option>{aSubs.map(s=><option key={s}>{s}</option>)}</select></div>
                 <div><label style={lbl}>Type</label><select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
               </div>
+
+              {/* ── File picker — reads to memory immediately ── */}
               <div>
                 <label style={lbl}>PDF File</label>
-                <div onClick={()=>document.getElementById("pdf-in").click()} style={{border:"2px dashed rgba(255,180,0,0.25)",borderRadius:10,padding:"20px",textAlign:"center",cursor:"pointer",background:file?"rgba(39,174,96,0.04)":"transparent"}}>
-                  {file?(<><div style={{fontSize:20,marginBottom:4}}>📄</div><div style={{color:"#27ae60",fontWeight:700,fontSize:13}}>{file.name}</div><div style={{color:"#666",fontSize:11,marginTop:2}}>{(file.size/1024/1024).toFixed(1)} MB</div></>)
-                  :(<><div style={{fontSize:22,marginBottom:4}}>📁</div><div style={{color:"#ffb400",fontWeight:700,fontSize:13}}>Tap to select PDF</div><div style={{color:"#555",fontSize:11,marginTop:4}}>Fill fields above first, then pick file</div></>)}
+                <div onClick={()=>document.getElementById("pdf-in").click()} style={{border:`2px dashed ${fileBase64?"rgba(39,174,96,0.5)":"rgba(255,180,0,0.25)"}`,borderRadius:10,padding:"20px",textAlign:"center",cursor:"pointer",background:fileBase64?"rgba(39,174,96,0.06)":"transparent"}}>
+                  {fileBase64?(
+                    <>
+                      <div style={{fontSize:24,marginBottom:6}}>📄</div>
+                      <div style={{color:"#27ae60",fontWeight:800,fontSize:13}}>{fileName}</div>
+                      <div style={{color:"#27ae60",fontSize:11,marginTop:3}}>{(fileSize/1024/1024).toFixed(2)} MB · Loaded in memory ✅</div>
+                      <div style={{color:"#555",fontSize:10,marginTop:4}}>Tap to change file</div>
+                    </>
+                  ):(
+                    <>
+                      <div style={{fontSize:26,marginBottom:6}}>📁</div>
+                      <div style={{color:"#ffb400",fontWeight:700,fontSize:13}}>Tap to select PDF</div>
+                      <div style={{color:"#555",fontSize:11,marginTop:4}}>File loads into memory — safe from Android</div>
+                    </>
+                  )}
                 </div>
-                <input id="pdf-in" type="file" accept="application/pdf" onChange={e=>{const f=e.target.files[0];if(f&&f.type==="application/pdf")setFile(f);else{showToast("Select a PDF","err");setFile(null);}}} style={{display:"none"}}/>
+                <input id="pdf-in" type="file" accept="application/pdf" onChange={handleFileSelect} style={{display:"none"}}/>
               </div>
+
               {progress&&<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:8,padding:"9px",fontSize:13,color:"#ffb400",textAlign:"center"}}>⏳ {progress}</div>}
               <button onClick={upload} disabled={uploading} style={{...btnPrimary,opacity:uploading?0.7:1}}>{uploading?`⏳ ${progress||"Uploading…"}`:"⬆ Upload PDF"}</button>
             </div>
           </div>
         )}
+
         {tab==="materials"&&(
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:460}}>
@@ -569,6 +607,7 @@ export default function App() {
             </table>
           </div>
         )}
+
         {tab==="analytics"&&(
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             {[
@@ -591,7 +630,7 @@ export default function App() {
     );
   };
 
-  const LoginM = ()=>{
+  const LoginM=()=>{
     const [f,setF]=useState({email:"",password:""});
     const [ld,setLd]=useState(false);
     const go=async()=>{
@@ -616,7 +655,7 @@ export default function App() {
     );
   };
 
-  const RegisterM = ()=>{
+  const RegisterM=()=>{
     const [f,setF]=useState({name:"",email:"",phone:"",password:"",system:"CBC",level:"Grade 1"});
     const [ld,setLd]=useState(false);
     const rLvls=f.system==="CBC"?LEVELS_CBC:LEVELS_844;
@@ -650,7 +689,7 @@ export default function App() {
     );
   };
 
-  const SubscribeM = ()=>{
+  const SubscribeM=()=>{
     const [plan,setPlan]=useState("monthly");
     const [phone,setPhone]=useState(profile?.phone||"");
     const [ld,setLd]=useState(false);
@@ -707,7 +746,7 @@ export default function App() {
     );
   };
 
-  const GateM = ()=>(
+  const GateM=()=>(
     <div style={{textAlign:"center",padding:"10px 0"}}>
       <div style={{fontSize:48,marginBottom:12}}>🔒</div>
       <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 8px",fontSize:20}}>Register to Download</h2>
@@ -719,7 +758,7 @@ export default function App() {
     </div>
   );
 
-  const PreviewM = ()=>{
+  const PreviewM=()=>{
     if(!prevMat) return null;
     const canSeeMore=!!user;
     return(
