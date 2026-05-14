@@ -122,7 +122,6 @@ export default function App() {
   const [prevMat, setPrevMat] = useState(null);
   const [toast, setToast]     = useState({msg:"",type:"ok"});
 
-  // Dark background fix
   useEffect(()=>{
     document.documentElement.style.backgroundColor="#080e1c";
     document.body.style.backgroundColor="#080e1c";
@@ -135,7 +134,7 @@ export default function App() {
     tm.setAttribute("content","#080e1c");
   },[]);
 
-  const showToast = (msg,type="ok")=>{
+  const showToast=(msg,type="ok")=>{
     setToast({msg,type});
     setTimeout(()=>setToast({msg:"",type:"ok"}),3500);
   };
@@ -468,12 +467,9 @@ export default function App() {
     const [tab,setTab]=useState("upload");
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
     const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"});
-
-    // ── File stored in memory immediately so Android can't lose it ──
     const [fileBase64,setFileBase64]=useState(null);
     const [fileName,setFileName]=useState("");
     const [fileSize,setFileSize]=useState(0);
-
     const [uploading,setUploading]=useState(false);
     const [progress,setProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
@@ -486,37 +482,54 @@ export default function App() {
     const handleFileSelect=(e)=>{
       const f=e.target.files[0];
       if(!f||f.type!=="application/pdf"){showToast("Select a PDF file","err");clearFile();return;}
-      setFileName(f.name);
-      setFileSize(f.size);
-      // Read into base64 IMMEDIATELY — before Android can kill the reference
+      setFileName(f.name);setFileSize(f.size);
       const reader=new FileReader();
-      reader.onload=()=>{
-        setFileBase64(reader.result.split(",")[1]);
-        showToast("✅ File loaded — ready to upload!");
-      };
+      reader.onload=()=>{setFileBase64(reader.result.split(",")[1]);showToast("✅ File loaded — ready to upload!");};
       reader.onerror=()=>showToast("Could not read file","err");
       reader.readAsDataURL(f);
     };
 
+    // ── Direct upload to Supabase Storage — no Netlify function needed ──
     const upload=async()=>{
       if(!form.title||!form.subject){showToast("Fill all fields","err");return;}
       if(!fileBase64){showToast("Please select a PDF file","err");return;}
-      setUploading(true);setProgress("Uploading…");
+      setUploading(true);setProgress("Uploading to storage…");
       try{
-        setProgress("Compressing & watermarking…");
-        const res=await fetch("/.netlify/functions/watermark-upload",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({fileBase64,fileName,metadata:{...form,pages:null}}),
-        });
-        const data=await res.json();
-        if(!res.ok||!data.success) throw new Error(data.error||"Upload failed");
-        const saved=data.savedPercent>0?` Compressed ${data.savedPercent}%`:"";
-        showToast("✅ Uploaded!"+saved);
+        // Convert base64 back to blob
+        const byteChars=atob(fileBase64);
+        const byteArr=new Uint8Array(byteChars.length);
+        for(let i=0;i<byteChars.length;i++) byteArr[i]=byteChars.charCodeAt(i);
+        const blob=new Blob([byteArr],{type:"application/pdf"});
+
+        // Upload to Supabase Storage bucket "materials"
+        const safeName=`${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+        const{data:uploadData,error:uploadError}=await supabase.storage
+          .from("materials")
+          .upload(safeName,blob,{contentType:"application/pdf",upsert:false});
+
+        if(uploadError) throw new Error(uploadError.message);
+
+        // Get public URL
+        const{data:{publicUrl}}=supabase.storage.from("materials").getPublicUrl(safeName);
+
+        // Save metadata to database
+        setProgress("Saving…");
+        const{error:dbError}=await supabase.from("materials").insert([{
+          title:form.title,
+          description:form.description,
+          system:form.system,
+          level:form.level,
+          subject:form.subject,
+          type:form.type,
+          file_url:publicUrl,
+          downloads:0,
+        }]);
+
+        if(dbError) throw new Error(dbError.message);
+
+        showToast("✅ Uploaded successfully!");
         const cleared={title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"};
-        setForm(cleared);
-        sessionStorage.removeItem("adminForm");
-        clearFile();
+        setForm(cleared);sessionStorage.removeItem("adminForm");clearFile();
         await loadMats();
       }catch(err){
         showToast("Upload failed: "+err.message,"err");
@@ -538,7 +551,6 @@ export default function App() {
             </button>
           ))}
         </div>
-
         {tab==="upload"&&(
           <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:16}}>
             {(form.title||form.subject)&&(
@@ -557,8 +569,6 @@ export default function App() {
                 <div><label style={lbl}>Subject</label><select value={form.subject} onChange={e=>setForm(p=>({...p,subject:e.target.value}))} style={{...inp,cursor:"pointer"}}><option value="">Select…</option>{aSubs.map(s=><option key={s}>{s}</option>)}</select></div>
                 <div><label style={lbl}>Type</label><select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
               </div>
-
-              {/* ── File picker — reads to memory immediately ── */}
               <div>
                 <label style={lbl}>PDF File</label>
                 <div onClick={()=>document.getElementById("pdf-in").click()} style={{border:`2px dashed ${fileBase64?"rgba(39,174,96,0.5)":"rgba(255,180,0,0.25)"}`,borderRadius:10,padding:"20px",textAlign:"center",cursor:"pointer",background:fileBase64?"rgba(39,174,96,0.06)":"transparent"}}>
@@ -566,26 +576,24 @@ export default function App() {
                     <>
                       <div style={{fontSize:24,marginBottom:6}}>📄</div>
                       <div style={{color:"#27ae60",fontWeight:800,fontSize:13}}>{fileName}</div>
-                      <div style={{color:"#27ae60",fontSize:11,marginTop:3}}>{(fileSize/1024/1024).toFixed(2)} MB · Loaded in memory ✅</div>
+                      <div style={{color:"#27ae60",fontSize:11,marginTop:3}}>{(fileSize/1024/1024).toFixed(2)} MB · Loaded ✅</div>
                       <div style={{color:"#555",fontSize:10,marginTop:4}}>Tap to change file</div>
                     </>
                   ):(
                     <>
                       <div style={{fontSize:26,marginBottom:6}}>📁</div>
                       <div style={{color:"#ffb400",fontWeight:700,fontSize:13}}>Tap to select PDF</div>
-                      <div style={{color:"#555",fontSize:11,marginTop:4}}>File loads into memory — safe from Android</div>
+                      <div style={{color:"#555",fontSize:11,marginTop:4}}>Uploads directly — no watermark</div>
                     </>
                   )}
                 </div>
                 <input id="pdf-in" type="file" accept="application/pdf" onChange={handleFileSelect} style={{display:"none"}}/>
               </div>
-
               {progress&&<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:8,padding:"9px",fontSize:13,color:"#ffb400",textAlign:"center"}}>⏳ {progress}</div>}
               <button onClick={upload} disabled={uploading} style={{...btnPrimary,opacity:uploading?0.7:1}}>{uploading?`⏳ ${progress||"Uploading…"}`:"⬆ Upload PDF"}</button>
             </div>
           </div>
         )}
-
         {tab==="materials"&&(
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:460}}>
@@ -607,7 +615,6 @@ export default function App() {
             </table>
           </div>
         )}
-
         {tab==="analytics"&&(
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             {[
