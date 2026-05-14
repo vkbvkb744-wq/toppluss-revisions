@@ -464,15 +464,17 @@ export default function App() {
   };
 
   // ─────────────────────────────────────────────────────────────
-  //  ADMIN — Fixed PDF upload for Android
+  //  ADMIN — Dual mode: File upload OR paste URL
   // ─────────────────────────────────────────────────────────────
   const Admin=()=>{
     const [tab,setTab]=useState("upload");
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
     const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"});
+    const [uploadMode,setUploadMode]=useState("url"); // "file" | "url"
     const [fileBase64,setFileBase64]=useState(null);
     const [fileName,setFileName]=useState("");
     const [fileSize,setFileSize]=useState(0);
+    const [pasteUrl,setPasteUrl]=useState("");
     const [uploading,setUploading]=useState(false);
     const [progress,setProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
@@ -482,37 +484,54 @@ export default function App() {
 
     const clearFile=()=>{setFileBase64(null);setFileName("");setFileSize(0);};
 
-    // ── FIX: Relaxed MIME check + accepts .pdf extension ──────
     const handleFileSelect=(e)=>{
       const f=e.target.files?.[0];
       if(!f){showToast("No file selected","err");return;}
-
-      // Android file managers sometimes return empty MIME type for PDFs
-      const isPdf =
-        f.type === "application/pdf" ||
-        f.type === "" ||                          // empty MIME — trust extension
-        f.name.toLowerCase().endsWith(".pdf");
-
-      if(!isPdf){showToast("Please select a PDF file","err");clearFile();return;}
-
-      setFileName(f.name);
-      setFileSize(f.size);
+      const isPdf=f.type==="application/pdf"||f.type===""||f.name.toLowerCase().endsWith(".pdf");
+      if(!isPdf){showToast("❌ Please pick a .pdf file","err");clearFile();e.target.value="";return;}
+      setFileName(f.name);setFileSize(f.size);
       showToast("📄 Reading file…");
-
       const reader=new FileReader();
-      reader.onload=()=>{
-        setFileBase64(reader.result.split(",")[1]);
-        showToast("✅ File loaded — ready to upload!");
-      };
+      reader.onload=()=>{setFileBase64(reader.result.split(",")[1]);showToast("✅ File loaded — ready to upload!");};
       reader.onerror=()=>showToast("Could not read file. Try again.","err");
       reader.readAsDataURL(f);
-
-      // Reset input value so the same file can be re-selected if needed
       e.target.value="";
     };
 
+    // Convert Google Drive share link → direct download link
+    const normalizeUrl=(url)=>{
+      const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if(m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
+      return url.trim();
+    };
+
     const upload=async()=>{
-      if(!form.title||!form.subject){showToast("Fill all required fields","err");return;}
+      if(!form.title||!form.subject){showToast("Fill Title and Subject","err");return;}
+
+      if(uploadMode==="url"){
+        // ── URL mode: just save the URL directly ──
+        const url=pasteUrl.trim();
+        if(!url){showToast("Paste a Google Drive URL first","err");return;}
+        setUploading(true);setProgress("Saving…");
+        try{
+          const finalUrl=normalizeUrl(url);
+          const{error}=await supabase.from("materials").insert([{
+            title:form.title,description:form.description,
+            system:form.system,level:form.level,
+            subject:form.subject,type:form.type,
+            file_url:finalUrl,downloads:0,
+          }]);
+          if(error) throw new Error(error.message);
+          showToast("✅ Material saved!");
+          const cleared={title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"};
+          setForm(cleared);sessionStorage.removeItem("adminForm");setPasteUrl("");
+          await loadMats();
+        }catch(err){showToast("Failed: "+err.message,"err");}
+        finally{setUploading(false);setProgress("");}
+        return;
+      }
+
+      // ── File mode: upload to Supabase Storage ──
       if(!fileBase64){showToast("Please select a PDF file first","err");return;}
       setUploading(true);setProgress("Uploading to storage…");
       try{
@@ -520,41 +539,24 @@ export default function App() {
         const byteArr=new Uint8Array(byteChars.length);
         for(let i=0;i<byteChars.length;i++) byteArr[i]=byteChars.charCodeAt(i);
         const blob=new Blob([byteArr],{type:"application/pdf"});
-
         const safeName=`${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-        const{data:uploadData,error:uploadError}=await supabase.storage
-          .from("materials")
-          .upload(safeName,blob,{contentType:"application/pdf",upsert:false});
-
+        const{error:uploadError}=await supabase.storage.from("materials").upload(safeName,blob,{contentType:"application/pdf",upsert:false});
         if(uploadError) throw new Error(uploadError.message);
-
         const{data:{publicUrl}}=supabase.storage.from("materials").getPublicUrl(safeName);
-
         setProgress("Saving to database…");
         const{error:dbError}=await supabase.from("materials").insert([{
-          title:form.title,
-          description:form.description,
-          system:form.system,
-          level:form.level,
-          subject:form.subject,
-          type:form.type,
-          file_url:publicUrl,
-          downloads:0,
+          title:form.title,description:form.description,
+          system:form.system,level:form.level,
+          subject:form.subject,type:form.type,
+          file_url:publicUrl,downloads:0,
         }]);
-
         if(dbError) throw new Error(dbError.message);
-
         showToast("✅ Uploaded successfully!");
         const cleared={title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"};
-        setForm(cleared);
-        sessionStorage.removeItem("adminForm");
-        clearFile();
+        setForm(cleared);sessionStorage.removeItem("adminForm");clearFile();
         await loadMats();
-      }catch(err){
-        showToast("Upload failed: "+err.message,"err");
-      }finally{
-        setUploading(false);setProgress("");
-      }
+      }catch(err){showToast("Upload failed: "+err.message,"err");}
+      finally{setUploading(false);setProgress("");}
     };
 
     return(
@@ -573,11 +575,6 @@ export default function App() {
 
         {tab==="upload"&&(
           <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:16}}>
-            {(form.title||form.subject)&&(
-              <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:8,padding:"9px 12px",marginBottom:12,fontSize:12,color:"#ffb400"}}>
-                ✅ Form restored — now select your PDF file
-              </div>
-            )}
             <div style={{display:"grid",gap:12}}>
               <div><label style={lbl}>Title *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} style={inp} placeholder="e.g. Mathematics Notes – Grade 9"/></div>
               <div><label style={lbl}>Description</label><textarea value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} style={{...inp,minHeight:72,resize:"vertical",lineHeight:1.5}} placeholder="Brief summary…"/></div>
@@ -590,65 +587,78 @@ export default function App() {
                 <div><label style={lbl}>Type</label><select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
               </div>
 
-              {/* ── FIXED PDF picker — works on Android ── */}
+              {/* ── Upload mode toggle ── */}
               <div>
-                <label style={lbl}>PDF File *</label>
-                <div style={{position:"relative"}}>
-                  <div style={{
-                    border:`2px dashed ${fileBase64?"rgba(39,174,96,0.6)":"rgba(255,180,0,0.35)"}`,
-                    borderRadius:10,padding:"24px 16px",textAlign:"center",
-                    background:fileBase64?"rgba(39,174,96,0.06)":"rgba(255,180,0,0.03)",
-                    minHeight:100,display:"flex",flexDirection:"column",
-                    alignItems:"center",justifyContent:"center",gap:6,
-                  }}>
-                    {fileBase64?(
-                      <>
-                        <div style={{fontSize:28}}>📄</div>
-                        <div style={{color:"#27ae60",fontWeight:800,fontSize:13,wordBreak:"break-all",maxWidth:"90%"}}>{fileName}</div>
-                        <div style={{color:"#27ae60",fontSize:11}}>{(fileSize/1024/1024).toFixed(2)} MB · Loaded ✅</div>
-                        <div style={{color:"#555",fontSize:10,marginTop:2}}>Tap to change file</div>
-                      </>
-                    ):(
-                      <>
-                        <div style={{fontSize:30}}>📁</div>
-                        <div style={{color:"#ffb400",fontWeight:700,fontSize:14}}>Tap to select PDF</div>
-                        <div style={{color:"#555",fontSize:11}}>Supports PDF files from any folder</div>
-                      </>
-                    )}
-                    {/* Invisible input overlay — most reliable on Android */}
-                    <input
-                      type="file"
-                      accept=".pdf,application/pdf"
-                      onChange={handleFileSelect}
-                      style={{
-                        position:"absolute",inset:0,width:"100%",height:"100%",
-                        opacity:0,cursor:"pointer",zIndex:10,fontSize:0,
-                      }}
-                    />
+                <label style={lbl}>Upload Method</label>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  {[{k:"url",icon:"🔗",label:"Paste URL"},{k:"file",icon:"📁",label:"Upload File"}].map(m=>(
+                    <button key={m.k} onClick={()=>setUploadMode(m.k)} style={{
+                      border:`2px solid ${uploadMode===m.k?"#ffb400":"rgba(255,255,255,0.1)"}`,
+                      background:uploadMode===m.k?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.03)",
+                      color:uploadMode===m.k?"#ffb400":"#888",
+                      borderRadius:10,padding:"12px 8px",cursor:"pointer",
+                      fontWeight:700,fontSize:13,textAlign:"center",
+                    }}>
+                      <div style={{fontSize:22,marginBottom:4}}>{m.icon}</div>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── URL mode ── */}
+              {uploadMode==="url"&&(
+                <div>
+                  <label style={lbl}>PDF File * (Paste Google Drive Link)</label>
+                  <textarea
+                    value={pasteUrl}
+                    onChange={e=>setPasteUrl(e.target.value)}
+                    placeholder={"Paste your Google Drive share link here:\nhttps://drive.google.com/file/d/XXXX/view?usp=sharing\n\nOr any direct PDF URL"}
+                    style={{...inp,minHeight:90,resize:"vertical",lineHeight:1.6,fontSize:12}}
+                  />
+                  <div style={{marginTop:6,fontSize:11,color:"#555"}}>
+                    📌 Open PDF in Google Drive → tap ⋮ → Share → Copy link → paste above
                   </div>
                 </div>
-                {/* Extra tap button for stubborn Android browsers */}
-                {!fileBase64&&(
-                  <label style={{
-                    display:"block",marginTop:8,textAlign:"center",
-                    background:"rgba(255,180,0,0.08)",border:"1px solid rgba(255,180,0,0.2)",
-                    borderRadius:8,padding:"9px",cursor:"pointer",fontSize:12,color:"#ffb400",fontWeight:700,
-                  }}>
-                    📂 Or tap here to browse files
-                    <input
-                      type="file"
-                      accept=".pdf,application/pdf"
-                      onChange={handleFileSelect}
-                      style={{display:"none"}}
-                    />
-                  </label>
-                )}
-                {fileBase64&&(
-                  <button onClick={clearFile} style={{width:"100%",marginTop:8,background:"rgba(231,76,60,0.08)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:8,padding:"8px 0",cursor:"pointer",fontWeight:700,fontSize:12}}>
-                    🗑 Remove File
-                  </button>
-                )}
-              </div>
+              )}
+
+              {/* ── File mode ── */}
+              {uploadMode==="file"&&(
+                <div>
+                  <label style={lbl}>Select PDF File</label>
+                  <div style={{position:"relative"}}>
+                    <div style={{
+                      border:`2px dashed ${fileBase64?"rgba(39,174,96,0.6)":"rgba(255,180,0,0.35)"}`,
+                      borderRadius:10,padding:"24px 16px",textAlign:"center",
+                      background:fileBase64?"rgba(39,174,96,0.06)":"rgba(255,180,0,0.03)",
+                      minHeight:110,display:"flex",flexDirection:"column",
+                      alignItems:"center",justifyContent:"center",gap:6,
+                    }}>
+                      {fileBase64?(
+                        <>
+                          <div style={{fontSize:28}}>📄</div>
+                          <div style={{color:"#27ae60",fontWeight:800,fontSize:13,wordBreak:"break-all",maxWidth:"90%"}}>{fileName}</div>
+                          <div style={{color:"#27ae60",fontSize:11}}>{(fileSize/1024/1024).toFixed(2)} MB · Loaded ✅</div>
+                          <div style={{color:"#555",fontSize:10,marginTop:2}}>Tap to change file</div>
+                        </>
+                      ):(
+                        <>
+                          <div style={{fontSize:30}}>📁</div>
+                          <div style={{color:"#ffb400",fontWeight:700,fontSize:14}}>Tap to select PDF</div>
+                          <div style={{color:"#555",fontSize:11}}>Works best on desktop/PC</div>
+                        </>
+                      )}
+                      <input type="file" accept=".pdf,application/pdf" onChange={handleFileSelect}
+                        style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer",zIndex:10}}/>
+                    </div>
+                  </div>
+                  {fileBase64&&(
+                    <button onClick={clearFile} style={{width:"100%",marginTop:8,background:"rgba(231,76,60,0.08)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:8,padding:"8px 0",cursor:"pointer",fontWeight:700,fontSize:12}}>
+                      🗑 Remove File
+                    </button>
+                  )}
+                </div>
+              )}
 
               {progress&&(
                 <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:8,padding:"10px",fontSize:13,color:"#ffb400",textAlign:"center"}}>
@@ -656,7 +666,7 @@ export default function App() {
                 </div>
               )}
               <button onClick={upload} disabled={uploading} style={{...btnPrimary,opacity:uploading?0.7:1}}>
-                {uploading?`⏳ ${progress||"Uploading…"}`:"⬆ Upload PDF"}
+                {uploading?`⏳ ${progress||"Saving…"}`:(uploadMode==="url"?"🔗 Save with URL":"⬆ Upload PDF")}
               </button>
             </div>
           </div>
