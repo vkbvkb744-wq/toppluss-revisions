@@ -74,8 +74,6 @@ const WaIcon = ()=>(
 );
 
 // ─── Stable child components defined OUTSIDE App ───────────────────────────
-// These must live outside App so React sees the same component reference
-// across renders. Defining them inside App causes remount on every keystroke.
 
 function Toast({ msg, type }) {
   if (!msg) return null;
@@ -113,7 +111,6 @@ function Modal({ children, onClose }) {
   );
 }
 
-// Card is also stable — defined outside so it never remounts
 function Card({ m, getIcon, onPreview, onDownload }) {
   return (
     <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,overflow:"hidden",display:"flex",alignItems:"stretch"}}>
@@ -162,10 +159,8 @@ export default function App() {
   const [modal, setModal]     = useState(null);
   const [mats, setMats]       = useState([]);
   const [loading, setLoading] = useState(true);
-  // ── Single shared search + filter state lifted to App level ──────────────
   const [search, setSearch]   = useState("");
   const [filt, setFilt]       = useState({system:"",level:"",subject:"",type:""});
-  // ────────────────────────────────────────────────────────────────────────
   const [prevMat, setPrevMat] = useState(null);
   const [toast, setToast]     = useState({msg:"",type:"ok"});
 
@@ -225,7 +220,6 @@ export default function App() {
   const isAdmin=profile?.role==="admin";
   const userName=profile?.full_name||user?.email?.split("@")[0]||"Student";
 
-  // ── Single filtered list used by both Home and Browse ───────────────────
   const filtMats=mats.filter(m=>{
     if(profile?.system&&!isAdmin&&m.system!==profile.system) return false;
     if(filt.system&&m.system!==filt.system) return false;
@@ -235,7 +229,6 @@ export default function App() {
     if(search&&!m.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
-  // ────────────────────────────────────────────────────────────────────────
 
   const topDL=[...mats].sort((a,b)=>b.downloads-a.downloads).slice(0,6);
   const latest=[...mats].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,6);
@@ -251,19 +244,50 @@ export default function App() {
     } else showToast("File not available yet","err");
   };
 
-  const handleDL=async(mat)=>{
-    if(isAdmin||isSubscribed){doDownload(mat);return;}
-    if(!user){setModal("gate");return;}
-    const used=profile?.free_downloads_used||0;
-    if(used<2){
-      await supabase.from("profiles").update({free_downloads_used:used+1}).eq("id",user.id);
-      setProfile(p=>({...p,free_downloads_used:used+1}));
+  // ── FIXED: handleDL — always re-fetches fresh profile from Supabase ──────
+  const handleDL = async (mat) => {
+    // Admins and subscribers download freely
+    if (isAdmin || isSubscribed) { doDownload(mat); return; }
+
+    // Not logged in — show gate
+    if (!user) { setModal("gate"); return; }
+
+    // Re-fetch fresh profile from Supabase to get the REAL current count
+    const { data: freshProfile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+
+    if (freshProfile) setProfile(freshProfile);
+
+    const used = freshProfile?.free_downloads_used ?? 0;
+
+    if (used < 2) {
+      // Still has free downloads — use one
+      const newUsed = used + 1;
+      await supabase
+        .from("profiles")
+        .update({ free_downloads_used: newUsed })
+        .eq("id", user.id);
+
+      // Update local state immediately so UI reflects correct count
+      setProfile(p => ({ ...p, free_downloads_used: newUsed }));
+
       doDownload(mat);
-      if(used+1>=2) showToast("2 free downloads used! Subscribe to continue","err");
+
+      if (newUsed >= 2) {
+        showToast("⚠️ You've used all 2 free downloads! Subscribe to continue downloading.", "err");
+      } else {
+        showToast(`✅ Free download used. ${2 - newUsed} free download(s) remaining.`);
+      }
     } else {
+      // All free downloads exhausted — block and show subscribe modal
+      showToast("🔒 You've used all your free downloads. Please subscribe to continue.", "err");
       setModal("subscribe");
     }
   };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const logout=async()=>{
     await supabase.auth.signOut();
@@ -279,7 +303,6 @@ export default function App() {
     "Mock Exams":"🎯","KCPE Papers":"🏫","KCSE Papers":"🎓","CBC Assessments":"📊",
   }[type]||"📄");
 
-  // ── Shared card props factory ────────────────────────────────────────────
   const cardProps = (m) => ({
     m,
     getIcon,
@@ -287,21 +310,6 @@ export default function App() {
     onDownload: handleDL,
   });
 
-  // ── Shared search input rendered once — never unmounts ──────────────────
-  const SearchInput = ({ extraStyle = {} }) => (
-    <div style={{position:"relative",...extraStyle}}>
-      <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,color:"#444"}}>🔍</span>
-      <input
-        placeholder="Search notes, past papers, subjects…"
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        onKeyDown={e => { if(e.key==="Enter"&&search) setPage("browse"); }}
-        style={{...inp,paddingLeft:38,fontSize:13,background:"rgba(255,255,255,0.05)"}}
-      />
-    </div>
-  );
-
-  // ── Nav (stable — no inner component, uses App state directly) ──────────
   const Nav = () => (
     <nav style={{position:"sticky",top:0,zIndex:200,background:"rgba(8,14,28,0.98)",backdropFilter:"blur(16px)",borderBottom:"1px solid rgba(255,180,0,0.1)"}}>
       <div style={{padding:"10px 16px 6px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -329,11 +337,7 @@ export default function App() {
     </nav>
   );
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  MODAL COMPONENTS (defined inside App to access state — this is fine
-  //  because modals are only rendered conditionally and don't contain inputs
-  //  that need to persist across parent re-renders caused by search typing)
-  // ────────────────────────────────────────────────────────────────────────
+  // ── MODAL COMPONENTS ────────────────────────────────────────────────────
 
   const ForgotPasswordM=()=>{
     const [email,setEmail]=useState("");
@@ -572,7 +576,6 @@ export default function App() {
     );
   };
 
-  // ── Analytics (defined inside — no inputs, fine here) ───────────────────
   const AnalyticsTab=()=>{
     const [stats,setStats]=useState({users:0,subscribers:0,weekly:0,monthly:0});
     useEffect(()=>{
@@ -630,7 +633,6 @@ export default function App() {
     );
   };
 
-  // ── Admin ────────────────────────────────────────────────────────────────
   const Admin=()=>{
     const [tab,setTab]=useState("upload");
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
@@ -815,17 +817,21 @@ export default function App() {
     );
   };
 
-  // ── Dash ─────────────────────────────────────────────────────────────────
+  // ── FIXED Dash — freeLeft always derived from fresh profile ─────────────
   const Dash=()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired=subscription?.reason==="expired";
-    const freeLeft=Math.max(0,2-(profile?.free_downloads_used||0));
+    // Derive from profile state (kept in sync by handleDL re-fetch)
+    const freeLeft = Math.max(0, 2 - (profile?.free_downloads_used || 0));
+    const allUsed = freeLeft === 0 && !isSubscribed && !expired;
+
     return(
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}>
           <span style={{fontSize:18}}>👤</span>
           <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>
         </div>
+
         {expired&&(
           <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>⚠️ Subscription Expired</div>
@@ -833,13 +839,23 @@ export default function App() {
             <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Renew Now</button>
           </div>
         )}
+
+        {/* ── BLOCKED banner: all free downloads used, not subscribed ── */}
+        {allUsed&&(
+          <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}>
+            <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div>
+            <p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>You've used all 2 free downloads. Subscribe to continue downloading materials.</p>
+            <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 100</button>
+          </div>
+        )}
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           {[
             {l:"System",v:profile.system,i:"📘"},
             {l:"Level",v:profile.level,i:"🎓"},
             {l:"Phone",v:profile.phone||"—",i:"📱"},
-            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":"Free",i:"💳",c:isSubscribed?"#27ae60":expired?"#e74c3c":"#ffb400"},
-            {l:"Free Left",v:isSubscribed?"Unlimited":`${freeLeft} left`,i:"📥"},
+            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":allUsed?"Blocked":"Free",i:"💳",c:isSubscribed?"#27ae60":expired||allUsed?"#e74c3c":"#ffb400"},
+            {l:"Free Left",v:isSubscribed?"Unlimited":`${freeLeft} left`,i:"📥",c:freeLeft===0&&!isSubscribed?"#e74c3c":undefined},
             {l:"Days Left",v:isSubscribed?`${subscription.daysLeft} days`:"—",i:"📅"},
           ].map(c=>(
             <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"12px"}}>
@@ -849,14 +865,20 @@ export default function App() {
             </div>
           ))}
         </div>
-        {!isSubscribed&&!expired&&(
+
+        {/* Upsell — show when free downloads still remain */}
+        {!isSubscribed&&!expired&&!allUsed&&(
           <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div>
-            <p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>You have {freeLeft} free download{freeLeft!==1?"s":""} left. Subscribe for unlimited access.</p>
+            <p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>
+              You have {freeLeft} free download{freeLeft!==1?"s":""} left. Subscribe for unlimited access.
+            </p>
             <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button>
           </div>
         )}
+
         <button onClick={logout} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",color:"#666",borderRadius:10,padding:"11px 0",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:16}}>🚪 Logout</button>
+
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           <span style={{fontSize:15}}>📚</span>
           <h3 style={{margin:0,fontSize:15,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3>
@@ -868,23 +890,18 @@ export default function App() {
     );
   };
 
-  // ── Browse filter options ────────────────────────────────────────────────
   const bLvls = filt.system==="CBC" ? LEVELS_CBC : filt.system==="8-4-4" ? LEVELS_844 : [...LEVELS_CBC,...LEVELS_844];
   const bSubs = filt.level
     ? [...(SUBS_CBC[filt.level]||[]),...(SUBS_844[filt.level]||[])]
     : ([...new Set([...SUBS_CBC_LIST,...SUBS_844_LIST])].sort());
 
-  // ──────────────────────────────────────────────────────────────────────────
-  //  RENDER — pages are rendered with CSS visibility so the search input
-  //  stays MOUNTED across page switches, preserving focus and keyboard state.
-  // ──────────────────────────────────────────────────────────────────────────
   return(
     <div style={{minHeight:"100dvh",background:"#080e1c",color:"#fff",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet"/>
       <Nav/>
       <main>
 
-        {/* ── HOME ── always mounted, hidden when not active */}
+        {/* ── HOME ── */}
         <div style={{display: page==="home" ? "block" : "none"}}>
           <div style={{background:"#080e1c",minHeight:"100dvh"}}>
             <div style={{position:"relative",padding:"44px 20px 48px",textAlign:"center",overflow:"hidden"}}>
@@ -909,7 +926,6 @@ export default function App() {
                 ))}
               </div>
             </div>
-            {/* ── Search input — single instance, always mounted ── */}
             <div style={{padding:"0 16px 18px"}}>
               <div style={{position:"relative"}}>
                 <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,color:"#444"}}>🔍</span>
@@ -977,7 +993,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── BROWSE ── always mounted, hidden when not active */}
+        {/* ── BROWSE ── */}
         <div style={{display: page==="browse" ? "block" : "none"}}>
           <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
@@ -985,7 +1001,6 @@ export default function App() {
               <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Browse Materials</h2>
               <span style={{fontSize:12,color:"#555",marginLeft:"auto"}}>{filtMats.length} results</span>
             </div>
-            {/* ── Search input — same state, always mounted ── */}
             <div style={{position:"relative",marginBottom:10}}>
               <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#444"}}>🔍</span>
               <input
@@ -1018,7 +1033,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── DASH & ADMIN — conditionally rendered (no search input inside) */}
         {page==="dash" && <Dash/>}
         {page==="admin" && isAdmin && <Admin/>}
 
