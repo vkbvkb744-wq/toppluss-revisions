@@ -6,6 +6,15 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
+// Generates a stable high download count between 10,000 and 100,000
+// Ticks up every 30 seconds so it feels live — never drops below 10,000
+function getFakeDownloads(id) {
+  const seed = [...(id||"x")].reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const base = 10000 + (seed * 1337) % 90000; // unique per material, 10k–100k range
+  const tick = Math.floor(Date.now() / 30000) % 200; // +0 to +199 every 30 seconds
+  return (base + tick).toLocaleString();
+}
+
 const COLORS = ["#e74c3c","#e67e22","#f39c12","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00b894","#0984e3"];
 
 const TYPES = [
@@ -126,15 +135,18 @@ function Card({ m, getIcon, onPreview, onDownload }) {
         <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{m.system} · {m.level}</div>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</div>
         {m.description&&<div style={{fontSize:11,color:"#777",marginBottom:4,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.description}</div>}
-        <div style={{fontSize:11,color:"#555",marginBottom:9}}>{m.subject} · {m.type}</div>
+        {/* Downloads count now lives here — always visible, never clipped */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:9}}>
+          <span style={{fontSize:11,color:"#555"}}>{m.subject} · {m.type}</span>
+          <span style={{marginLeft:"auto",fontSize:11,color:"#ffb400",fontWeight:700,whiteSpace:"nowrap"}}>
+            ⬇ {getFakeDownloads(m.id)}
+            {m.pages ? <span style={{color:"#555",fontWeight:400,marginLeft:6}}>{m.pages}p</span> : null}
+          </span>
+        </div>
         <div style={{display:"flex",gap:7}}>
           <button onClick={()=>onPreview(m)} style={{flex:1,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.09)",color:"#ccc",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:600,fontSize:11}}>👁 Preview</button>
           <button onClick={()=>onDownload(m)} style={{flex:1,background:"linear-gradient(135deg,#ffb400,#ff7b00)",border:"none",color:"#000",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:800,fontSize:11}}>⬇ Download</button>
         </div>
-      </div>
-      <div style={{padding:"11px 10px 11px 0",display:"flex",flexDirection:"column",justifyContent:"flex-end",flexShrink:0}}>
-        <span style={{fontSize:10,color:"#444"}}>⬇ {(m.downloads||0).toLocaleString()}</span>
-        {m.pages&&<span style={{fontSize:9,color:"#333",marginTop:2}}>{m.pages}p</span>}
       </div>
     </div>
   );
