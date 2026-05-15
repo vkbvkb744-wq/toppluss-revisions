@@ -469,8 +469,9 @@ export default function App() {
   const Admin=()=>{
     const [tab,setTab]=useState("upload");
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
-    const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"});
-    const [uploadMode,setUploadMode]=useState("url"); // "file" | "url"
+    const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
+    const [selectedSubs,setSelectedSubs]=useState([]);
+    const [uploadMode,setUploadMode]=useState("url");
     const [fileBase64,setFileBase64]=useState(null);
     const [fileName,setFileName]=useState("");
     const [fileSize,setFileSize]=useState(0);
@@ -478,9 +479,14 @@ export default function App() {
     const [uploading,setUploading]=useState(false);
     const [progress,setProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
-    const aSubs=SUBS_CBC[form.level]||SUBS_844[form.level]||[];
+    const aSubs=["All Subjects",...(SUBS_CBC[form.level]||SUBS_844[form.level]||[])];
 
     useEffect(()=>{sessionStorage.setItem("adminForm",JSON.stringify(form));},[form]);
+
+    const toggleSub=(s)=>{
+      if(s==="All Subjects"){setSelectedSubs(p=>p.length===aSubs.length?[]:aSubs);return;}
+      setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
+    };
 
     const clearFile=()=>{setFileBase64(null);setFileName("");setFileSize(0);};
 
@@ -506,7 +512,9 @@ export default function App() {
     };
 
     const upload=async()=>{
-      if(!form.title||!form.subject){showToast("Fill Title and Subject","err");return;}
+      if(!form.title){showToast("Fill Title","err");return;}
+      if(selectedSubs.length===0){showToast("Select at least one Subject","err");return;}
+      const subjectsToSave=selectedSubs.includes("All Subjects")?["All Subjects"]:selectedSubs;
 
       if(uploadMode==="url"){
         // ── URL mode: just save the URL directly ──
@@ -515,16 +523,20 @@ export default function App() {
         setUploading(true);setProgress("Saving…");
         try{
           const finalUrl=normalizeUrl(url);
-          const{error}=await supabase.from("materials").insert([{
-            title:form.title,description:form.description,
-            system:form.system,level:form.level,
-            subject:form.subject,type:form.type,
-            file_url:finalUrl,downloads:0,
-          }]);
-          if(error) throw new Error(error.message);
-          showToast("✅ Material saved!");
-          const cleared={title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"};
-          setForm(cleared);sessionStorage.removeItem("adminForm");setPasteUrl("");
+          for(let i=0;i<subjectsToSave.length;i++){
+            const sub=subjectsToSave[i];
+            setProgress(`Saving ${i+1}/${subjectsToSave.length}: ${sub}…`);
+            const{error}=await supabase.from("materials").insert([{
+              title:form.title,description:form.description,
+              system:form.system,level:form.level,
+              subject:sub,type:form.type,
+              file_url:finalUrl,downloads:0,
+            }]);
+            if(error) throw new Error(error.message);
+          }
+          showToast(`✅ Saved for ${subjectsToSave.length} subject(s)!`);
+          setForm({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
+          sessionStorage.removeItem("adminForm");setPasteUrl("");setSelectedSubs([]);
           await loadMats();
         }catch(err){showToast("Failed: "+err.message,"err");}
         finally{setUploading(false);setProgress("");}
@@ -543,17 +555,20 @@ export default function App() {
         const{error:uploadError}=await supabase.storage.from("materials").upload(safeName,blob,{contentType:"application/pdf",upsert:false});
         if(uploadError) throw new Error(uploadError.message);
         const{data:{publicUrl}}=supabase.storage.from("materials").getPublicUrl(safeName);
-        setProgress("Saving to database…");
-        const{error:dbError}=await supabase.from("materials").insert([{
-          title:form.title,description:form.description,
-          system:form.system,level:form.level,
-          subject:form.subject,type:form.type,
-          file_url:publicUrl,downloads:0,
-        }]);
-        if(dbError) throw new Error(dbError.message);
-        showToast("✅ Uploaded successfully!");
-        const cleared={title:"",description:"",system:"CBC",level:"Grade 1",subject:"",type:"Notes"};
-        setForm(cleared);sessionStorage.removeItem("adminForm");clearFile();
+        for(let i=0;i<subjectsToSave.length;i++){
+          const sub=subjectsToSave[i];
+          setProgress(`Saving ${i+1}/${subjectsToSave.length}: ${sub}…`);
+          const{error:dbError}=await supabase.from("materials").insert([{
+            title:form.title,description:form.description,
+            system:form.system,level:form.level,
+            subject:sub,type:form.type,
+            file_url:publicUrl,downloads:0,
+          }]);
+          if(dbError) throw new Error(dbError.message);
+        }
+        showToast(`✅ Uploaded for ${subjectsToSave.length} subject(s)!`);
+        setForm({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
+        sessionStorage.removeItem("adminForm");clearFile();setSelectedSubs([]);
         await loadMats();
       }catch(err){showToast("Upload failed: "+err.message,"err");}
       finally{setUploading(false);setProgress("");}
@@ -579,12 +594,27 @@ export default function App() {
               <div><label style={lbl}>Title *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} style={inp} placeholder="e.g. Mathematics Notes – Grade 9"/></div>
               <div><label style={lbl}>Description</label><textarea value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} style={{...inp,minHeight:72,resize:"vertical",lineHeight:1.5}} placeholder="Brief summary…"/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div><label style={lbl}>System</label><select value={form.system} onChange={e=>setForm(p=>({...p,system:e.target.value,level:e.target.value==="CBC"?"Grade 1":"Form 1",subject:""}))} style={{...inp,cursor:"pointer"}}><option>CBC</option><option>8-4-4</option></select></div>
-                <div><label style={lbl}>Level</label><select value={form.level} onChange={e=>setForm(p=>({...p,level:e.target.value,subject:""}))} style={{...inp,cursor:"pointer"}}>{aLvls.map(l=><option key={l}>{l}</option>)}</select></div>
+                <div><label style={lbl}>System</label><select value={form.system} onChange={e=>{setForm(p=>({...p,system:e.target.value,level:e.target.value==="CBC"?"Grade 1":"Form 1"}));setSelectedSubs([]);}} style={{...inp,cursor:"pointer"}}><option>CBC</option><option>8-4-4</option></select></div>
+                <div><label style={lbl}>Level</label><select value={form.level} onChange={e=>{setForm(p=>({...p,level:e.target.value}));setSelectedSubs([]);}} style={{...inp,cursor:"pointer"}}>{aLvls.map(l=><option key={l}>{l}</option>)}</select></div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div><label style={lbl}>Subject *</label><select value={form.subject} onChange={e=>setForm(p=>({...p,subject:e.target.value}))} style={{...inp,cursor:"pointer"}}><option value="">Select…</option>{aSubs.map(s=><option key={s}>{s}</option>)}</select></div>
-                <div><label style={lbl}>Type</label><select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+              <div>
+                <label style={lbl}>Type</label>
+                <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select>
+              </div>
+              <div>
+                <label style={lbl}>Subject * — Select one or more ({selectedSubs.length} selected)</label>
+                <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px",maxHeight:200,overflowY:"auto"}}>
+                  {aSubs.map(s=>(
+                    <label key={s} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                      <input type="checkbox" checked={selectedSubs.includes(s)} onChange={()=>toggleSub(s)} style={{width:16,height:16,accentColor:"#ffb400",cursor:"pointer"}}/>
+                      <span style={{fontSize:13,color:selectedSubs.includes(s)?"#ffb400":"#ccc",fontWeight:selectedSubs.includes(s)?700:400}}>{s}</span>
+                      {s==="All Subjects"&&<span style={{fontSize:10,color:"#555",marginLeft:"auto"}}>← select all</span>}
+                    </label>
+                  ))}
+                </div>
+                {selectedSubs.length>0&&(
+                  <div style={{marginTop:6,fontSize:11,color:"#27ae60"}}>✅ Selected: {selectedSubs.join(", ")}</div>
+                )}
               </div>
 
               {/* ── Upload mode toggle ── */}
@@ -695,21 +725,99 @@ export default function App() {
         )}
 
         {tab==="analytics"&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            {[
-              {l:"Total Materials",v:mats.length,i:"📄"},
-              {l:"Total Downloads",v:mats.reduce((s,m)=>s+(m.downloads||0),0).toLocaleString(),i:"⬇"},
-              {l:"CBC",v:mats.filter(m=>m.system==="CBC").length,i:"📘"},
-              {l:"8-4-4",v:mats.filter(m=>m.system==="8-4-4").length,i:"📗"},
-              {l:"Notes",v:mats.filter(m=>m.type==="Notes").length,i:"📝"},
-              {l:"Past Papers",v:mats.filter(m=>m.type==="Past Papers").length,i:"📄"},
-            ].map(c=>(
-              <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px 12px"}}>
-                <div style={{fontSize:18,marginBottom:5}}>{c.i}</div>
-                <div style={{fontSize:10,color:"#666",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div>
-                <div style={{fontSize:18,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{c.v}</div>
-              </div>
-            ))}
+          <AnalyticsTab/>
+        )}
+      </div>
+    );
+  };
+
+  const AnalyticsTab=()=>{
+    const [stats,setStats]=useState({users:0,subscribers:0,weekly:0,monthly:0});
+    useEffect(()=>{
+      const loadStats=async()=>{
+        const{count:users}=await supabase.from("profiles").select("*",{count:"exact",head:true});
+        const{count:subs}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("active",true);
+        const{count:weekly}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("plan","weekly").eq("active",true);
+        const{count:monthly}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("plan","monthly").eq("active",true);
+        setStats({users:users||0,subscribers:subs||0,weekly:weekly||0,monthly:monthly||0});
+      };
+      loadStats();
+    },[]);
+    const topMat=[...mats].sort((a,b)=>b.downloads-a.downloads)[0];
+    const revenue=(stats.weekly*100)+(stats.monthly*250);
+    const allStats=[
+      {l:"Total Materials",v:mats.length,i:"📄"},
+      {l:"Total Downloads",v:mats.reduce((s,m)=>s+(m.downloads||0),0).toLocaleString(),i:"⬇"},
+      {l:"Registered Users",v:stats.users,i:"👤"},
+      {l:"Active Subscribers",v:stats.subscribers,i:"💳",c:"#27ae60"},
+      {l:"Weekly Plans",v:stats.weekly,i:"📅"},
+      {l:"Monthly Plans",v:stats.monthly,i:"📆"},
+      {l:"Est. Revenue",v:`KSh ${revenue.toLocaleString()}`,i:"💰",c:"#ffb400"},
+      {l:"CBC Materials",v:mats.filter(m=>m.system==="CBC").length,i:"📘"},
+      {l:"8-4-4 Materials",v:mats.filter(m=>m.system==="8-4-4").length,i:"📗"},
+      {l:"Notes",v:mats.filter(m=>m.type==="Notes").length,i:"📝"},
+      {l:"Past Papers",v:mats.filter(m=>m.type==="Past Papers").length,i:"📄"},
+      {l:"Marking Schemes",v:mats.filter(m=>m.type==="Marking Schemes").length,i:"✅"},
+      {l:"Revision Papers",v:mats.filter(m=>m.type==="Revision Papers").length,i:"📑"},
+      {l:"Assignments",v:mats.filter(m=>m.type==="Assignments").length,i:"📋"},
+      {l:"Exams",v:mats.filter(m=>m.type==="Exams").length,i:"📝"},
+      {l:"CATs",v:mats.filter(m=>m.type==="CATs").length,i:"✍️"},
+      {l:"Mock Exams",v:mats.filter(m=>m.type==="Mock Exams").length,i:"🎯"},
+      {l:"KCSE Papers",v:mats.filter(m=>m.type==="KCSE Papers").length,i:"🎓"},
+      {l:"KCPE Papers",v:mats.filter(m=>m.type==="KCPE Papers").length,i:"🏫"},
+    ];
+    return(
+      <div>
+        {topMat&&(
+          <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:12,padding:"12px",marginBottom:14}}>
+            <div style={{fontSize:10,color:"#ffb400",fontWeight:700,textTransform:"uppercase",marginBottom:4}}>🏆 Most Downloaded</div>
+            <div style={{fontSize:13,color:"#fff",fontWeight:700}}>{topMat.title}</div>
+            <div style={{fontSize:11,color:"#888"}}>{topMat.subject} · {topMat.downloads||0} downloads</div>
+          </div>
+        )}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {allStats.map(c=>(
+            <div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px 12px"}}>
+              <div style={{fontSize:18,marginBottom:5}}>{c.i}</div>
+              <div style={{fontSize:10,color:"#666",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div>
+              <div style={{fontSize:18,fontWeight:900,color:c.c||"#ffb400",fontFamily:"'Playfair Display',serif"}}>{c.v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const ForgotPasswordM=()=>{
+    const [email,setEmail]=useState("");
+    const [ld,setLd]=useState(false);
+    const [sent,setSent]=useState(false);
+    const send=async()=>{
+      if(!email){showToast("Enter your email","err");return;}
+      setLd(true);
+      const{error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:"https://topplussrevisions.top/#reset-password"});
+      if(error) showToast("Failed: "+error.message,"err");
+      else setSent(true);
+      setLd(false);
+    };
+    return(
+      <div>
+        <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Reset Password</h2>
+        {sent?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:48,marginBottom:12}}>📧</div>
+            <p style={{color:"#27ae60",fontWeight:700,fontSize:15,marginBottom:8}}>Email sent!</p>
+            <p style={{color:"#888",fontSize:13}}>Check your inbox and click the reset link. Then come back and log in with your new password.</p>
+            <button onClick={()=>setModal("login")} style={{...btnPrimary,marginTop:16}}>Back to Login</button>
+          </div>
+        ):(
+          <div>
+            <p style={{color:"#777",fontSize:13,margin:"0 0 18px"}}>Enter your email and we'll send a reset link.</p>
+            <div style={{display:"grid",gap:12}}>
+              <div><label style={lbl}>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} style={inp} placeholder="you@example.com" onKeyDown={e=>e.key==="Enter"&&send()}/></div>
+              <button onClick={send} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending…":"Send Reset Link"}</button>
+              <p style={{textAlign:"center",fontSize:12,color:"#666",margin:0}}>Remember password? <button onClick={()=>setModal("login")} style={{background:"none",border:"none",color:"#ffb400",cursor:"pointer",fontWeight:700,fontSize:12}}>Login</button></p>
+            </div>
           </div>
         )}
       </div>
@@ -735,6 +843,9 @@ export default function App() {
           <div><label style={lbl}>Email</label><input type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} style={inp} placeholder="you@example.com"/></div>
           <div><label style={lbl}>Password</label><input type="password" value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={inp} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&go()}/></div>
           <button onClick={go} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Logging in…":"Login"}</button>
+          <p style={{textAlign:"center",fontSize:12,color:"#666",margin:0}}>
+            <button onClick={()=>setModal("forgot")} style={{background:"none",border:"none",color:"#aaa",cursor:"pointer",fontSize:12}}>Forgot password?</button>
+          </p>
           <p style={{textAlign:"center",fontSize:12,color:"#666",margin:0}}>No account? <button onClick={()=>setModal("register")} style={{background:"none",border:"none",color:"#ffb400",cursor:"pointer",fontWeight:700,fontSize:12}}>Register free</button></p>
         </div>
       </div>
@@ -846,9 +957,24 @@ export default function App() {
 
   const PreviewM=()=>{
     if(!prevMat) return null;
-    const canSeeMore=!!user;
+
+    // Extract Google Drive file ID and build embed URL
+    const getEmbedUrl=(url)=>{
+      if(!url) return null;
+      // Handle drive.google.com/file/d/FILE_ID/view
+      const m1=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if(m1) return `https://drive.google.com/file/d/${m1[1]}/preview`;
+      // Handle uc?export=download&id=FILE_ID
+      const m2=url.match(/id=([a-zA-Z0-9_-]+)/);
+      if(m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
+      return null;
+    };
+
+    const embedUrl=getEmbedUrl(prevMat.file_url);
+
     return(
       <div>
+        {/* Header */}
         <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"center"}}>
           <div style={{width:52,height:52,background:`linear-gradient(135deg,${prevMat.color}cc,${prevMat.color}44)`,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{getIcon(prevMat.type)}</div>
           <div>
@@ -857,31 +983,66 @@ export default function App() {
             <div style={{fontSize:11,color:"#666"}}>{prevMat.subject} · {prevMat.type}</div>
           </div>
         </div>
+
+        {/* Description */}
         {prevMat.description&&(
           <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:9,padding:"10px 12px",marginBottom:12,fontSize:12,color:"#aaa",lineHeight:1.6}}>
             {prevMat.description}
           </div>
         )}
-        <div style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:16,marginBottom:12,minHeight:180,position:"relative",overflow:"hidden"}}>
-          <div style={{fontSize:13,fontWeight:700,textAlign:"center",marginBottom:10,color:"#fff"}}>{prevMat.title}</div>
-          <div style={{fontSize:12,color:"#bbb",lineHeight:1.8}}>
-            <p style={{margin:"0 0 8px"}}><strong style={{color:"#fff"}}>1. Introduction</strong></p>
-            <p style={{margin:"0 0 8px"}}>This material covers essential concepts for <strong style={{color:"#ffb400"}}>{prevMat.subject}</strong> at <strong style={{color:"#ffb400"}}>{prevMat.level}</strong>.</p>
-            {canSeeMore&&<><p style={{margin:"0 0 8px"}}><strong style={{color:"#fff"}}>2. Learning Outcomes</strong></p><p style={{margin:0}}>By the end of this unit, learners will be able to apply core principles and demonstrate understanding…</p></>}
+
+        {/* ── SUBSCRIBER: Real Google Drive PDF embed ── */}
+        {(isSubscribed||isAdmin)&&embedUrl?(
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:"#27ae60",fontWeight:700,marginBottom:6}}>✅ Subscriber Preview — Full Document</div>
+            <div style={{position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid rgba(255,180,0,0.2)"}}>
+              <iframe
+                src={embedUrl}
+                style={{width:"100%",height:480,border:"none",display:"block"}}
+                allow="autoplay"
+                title={prevMat.title}
+              />
+            </div>
           </div>
-          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%) rotate(-28deg)",opacity:0.08,fontSize:13,fontWeight:900,color:"#fff",whiteSpace:"nowrap",pointerEvents:"none",letterSpacing:1}}>www.topplussrevisions.top</div>
-          <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(transparent,rgba(13,25,41,0.98))",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:8}}>
-            <span style={{fontSize:10,color:"#555",fontStyle:"italic"}}>{canSeeMore?"2-page preview — download for full document":"Register free to see more + get 2 free downloads"}</span>
-          </div>
-        </div>
-        {!user&&(
-          <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}>
-            <span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free — unlock full preview + 2 free downloads</span>
+        ):(
+          /* ── FREE / NOT LOGGED IN: Fake preview ── */
+          <div style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:16,marginBottom:12,minHeight:180,position:"relative",overflow:"hidden"}}>
+            <div style={{fontSize:13,fontWeight:700,textAlign:"center",marginBottom:10,color:"#fff"}}>{prevMat.title}</div>
+            <div style={{fontSize:12,color:"#bbb",lineHeight:1.8}}>
+              <p style={{margin:"0 0 8px"}}><strong style={{color:"#fff"}}>1. Introduction</strong></p>
+              <p style={{margin:"0 0 8px"}}>This material covers essential concepts for <strong style={{color:"#ffb400"}}>{prevMat.subject}</strong> at <strong style={{color:"#ffb400"}}>{prevMat.level}</strong>.</p>
+            </div>
+            <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%) rotate(-28deg)",opacity:0.08,fontSize:13,fontWeight:900,color:"#fff",whiteSpace:"nowrap",pointerEvents:"none",letterSpacing:1}}>www.topplussrevisions.top</div>
+            <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(transparent,rgba(13,25,41,0.98))",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:8}}>
+              <span style={{fontSize:10,color:"#555",fontStyle:"italic"}}>{user?"Subscribe to preview full document":"Register free to get 2 free downloads"}</span>
+            </div>
           </div>
         )}
+
+        {/* Subscribe prompt for logged in but not subscribed */}
+        {user&&!isSubscribed&&(
+          <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}>
+            <span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>🔐 Subscribe to preview & download all documents</span>
+          </div>
+        )}
+
+        {/* Not logged in prompt */}
+        {!user&&(
+          <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}>
+            <span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free — get 2 free downloads</span>
+          </div>
+        )}
+
+        {/* Action buttons */}
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>setModal(null)} style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",color:"#aaa",padding:"11px 0",borderRadius:9,cursor:"pointer",fontWeight:600,fontSize:13}}>Close</button>
-          <button onClick={()=>{setModal(null);user?handleDL(prevMat):setModal("gate");}} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>{user?"⬇ Download Full":"Register to Download"}</button>
+          {!user?(
+            <button onClick={()=>setModal("register")} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>Register to Download</button>
+          ):!isSubscribed?(
+            <button onClick={()=>{setModal("subscribe");}} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>💳 Subscribe to Download</button>
+          ):(
+            <button onClick={()=>{setModal(null);handleDL(prevMat);}} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>⬇ Download Full</button>
+          )}
         </div>
       </div>
     );
@@ -903,6 +1064,7 @@ export default function App() {
       </a>
       <Toast {...toast}/>
       {modal==="login"&&<Modal onClose={()=>setModal(null)}><LoginM/></Modal>}
+      {modal==="forgot"&&<Modal onClose={()=>setModal(null)}><ForgotPasswordM/></Modal>}
       {modal==="register"&&<Modal onClose={()=>setModal(null)}><RegisterM/></Modal>}
       {modal==="subscribe"&&<Modal onClose={()=>setModal(null)}><SubscribeM/></Modal>}
       {modal==="gate"&&<Modal onClose={()=>setModal(null)}><GateM/></Modal>}
