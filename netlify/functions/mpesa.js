@@ -11,13 +11,13 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "X-IntaSend-Public-API-Key": process.env.INSTASEND_PUBLIC_KEY,
-        "Authorization": `Bearer ${process.env.INSTASEND_SECRET_KEY}`
+        "Authorization": `Bearer ${process.env.INSTASEND_PRIVATE_KEY}`
       },
       body: JSON.stringify({
         phone_number: phone,
         amount: amount,
         currency: "KES",
-        narrative: "Toppluss Payment"
+        narrative: "Toppluss Revisions Payment"
       })
     });
 
