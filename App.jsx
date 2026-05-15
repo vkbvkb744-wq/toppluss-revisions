@@ -49,6 +49,17 @@ const SUBS_844 = {
   "Form 3":SUBS_844_LIST,"Form 4":SUBS_844_LIST,
 };
 
+// ── Generates a stable-looking fake download count (10,000–100,000) ───────
+// Unique per material ID, ticks up slightly every 10 seconds automatically.
+function getFakeDownloads(id) {
+  if (!id) return "10,000";
+  const base = (id.charCodeAt(0) + id.charCodeAt(1) + id.charCodeAt(2)) * 317;
+  const bump = Math.floor(Date.now() / 10000);
+  const num = (base % 90000) + 10000 + (bump % 500);
+  return num.toLocaleString();
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 const toApiPhone = (p) => p.startsWith("07") ? "254"+p.slice(1) : p.startsWith("+254") ? p.slice(1) : p;
 const isValidPhone = (p) => /^07\d{8}$/.test(p);
 
@@ -111,6 +122,7 @@ function Modal({ children, onClose }) {
   );
 }
 
+// ── FIX: Card now uses getFakeDownloads(m.id) instead of real download count ──
 function Card({ m, getIcon, onPreview, onDownload }) {
   return (
     <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,overflow:"hidden",display:"flex",alignItems:"stretch"}}>
@@ -130,7 +142,7 @@ function Card({ m, getIcon, onPreview, onDownload }) {
         </div>
       </div>
       <div style={{padding:"11px 10px 11px 0",display:"flex",flexDirection:"column",justifyContent:"flex-end",flexShrink:0}}>
-        <span style={{fontSize:10,color:"#444"}}>⬇ {(m.downloads||0).toLocaleString()}</span>
+        <span style={{fontSize:10,color:"#444"}}>⬇ {getFakeDownloads(m.id)}</span>
         {m.pages&&<span style={{fontSize:9,color:"#333",marginTop:2}}>{m.pages}p</span>}
       </div>
     </div>
@@ -246,13 +258,9 @@ export default function App() {
 
   // ── FIXED: handleDL — always re-fetches fresh profile from Supabase ──────
   const handleDL = async (mat) => {
-    // Admins and subscribers download freely
     if (isAdmin || isSubscribed) { doDownload(mat); return; }
-
-    // Not logged in — show gate
     if (!user) { setModal("gate"); return; }
 
-    // Re-fetch fresh profile from Supabase to get the REAL current count
     const { data: freshProfile } = await supabase
       .from("profiles")
       .select("*")
@@ -264,16 +272,13 @@ export default function App() {
     const used = freshProfile?.free_downloads_used ?? 0;
 
     if (used < 2) {
-      // Still has free downloads — use one
       const newUsed = used + 1;
       await supabase
         .from("profiles")
         .update({ free_downloads_used: newUsed })
         .eq("id", user.id);
 
-      // Update local state immediately so UI reflects correct count
       setProfile(p => ({ ...p, free_downloads_used: newUsed }));
-
       doDownload(mat);
 
       if (newUsed >= 2) {
@@ -282,7 +287,6 @@ export default function App() {
         showToast(`✅ Free download used. ${2 - newUsed} free download(s) remaining.`);
       }
     } else {
-      // All free downloads exhausted — block and show subscribe modal
       showToast("🔒 You've used all your free downloads. Please subscribe to continue.", "err");
       setModal("subscribe");
     }
@@ -817,11 +821,9 @@ export default function App() {
     );
   };
 
-  // ── FIXED Dash — freeLeft always derived from fresh profile ─────────────
   const Dash=()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired=subscription?.reason==="expired";
-    // Derive from profile state (kept in sync by handleDL re-fetch)
     const freeLeft = Math.max(0, 2 - (profile?.free_downloads_used || 0));
     const allUsed = freeLeft === 0 && !isSubscribed && !expired;
 
@@ -840,7 +842,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── BLOCKED banner: all free downloads used, not subscribed ── */}
         {allUsed&&(
           <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div>
@@ -866,7 +867,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* Upsell — show when free downloads still remain */}
         {!isSubscribed&&!expired&&!allUsed&&(
           <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div>
