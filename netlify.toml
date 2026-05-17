@@ -1,6 +1,17 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/sitemap.xml"
+  to = "/.netlify/functions/sitemap"
+  status = 200
+
+[[redirects]]
+  from = "/robots.txt"
+  to = "/.netlify/functions/robots"
+  status = 200
 
 [[redirects]]
   from = "/*"
