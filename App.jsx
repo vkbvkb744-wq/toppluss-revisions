@@ -49,8 +49,6 @@ const SUBS_844 = {
   "Form 3":SUBS_844_LIST,"Form 4":SUBS_844_LIST,
 };
 
-// ── Generates a stable-looking fake download count (10,000–100,000) ───────
-// Unique per material ID, ticks up slightly every 10 seconds automatically.
 function getFakeDownloads(id) {
   if (!id) return "10,000";
   const base = (id.charCodeAt(0) + id.charCodeAt(1) + id.charCodeAt(2)) * 317;
@@ -58,7 +56,6 @@ function getFakeDownloads(id) {
   const num = (base % 90000) + 10000 + (bump % 500);
   return num.toLocaleString();
 }
-// ─────────────────────────────────────────────────────────────────────────
 
 const toApiPhone = (p) => p.startsWith("07") ? "254"+p.slice(1) : p.startsWith("+254") ? p.slice(1) : p;
 const isValidPhone = (p) => /^07\d{8}$/.test(p);
@@ -83,8 +80,6 @@ const WaIcon = ()=>(
     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
   </svg>
 );
-
-// ─── Stable child components defined OUTSIDE App ───────────────────────────
 
 function Toast({ msg, type }) {
   if (!msg) return null;
@@ -122,7 +117,6 @@ function Modal({ children, onClose }) {
   );
 }
 
-// ── FIX: Card now uses getFakeDownloads(m.id) instead of real download count ──
 function Card({ m, getIcon, onPreview, onDownload }) {
   return (
     <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,overflow:"hidden",display:"flex",alignItems:"stretch"}}>
@@ -160,8 +154,6 @@ function SectionHead({ icon, title, sub }) {
     </div>
   );
 }
-
-// ───────────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [page, setPage]       = useState("home");
@@ -256,7 +248,6 @@ export default function App() {
     } else showToast("File not available yet","err");
   };
 
-  // ── FIXED: handleDL — always re-fetches fresh profile from Supabase ──────
   const handleDL = async (mat) => {
     if (isAdmin || isSubscribed) { doDownload(mat); return; }
     if (!user) { setModal("gate"); return; }
@@ -291,7 +282,6 @@ export default function App() {
       setModal("subscribe");
     }
   };
-  // ─────────────────────────────────────────────────────────────────────────
 
   const logout=async()=>{
     await supabase.auth.signOut();
@@ -340,8 +330,6 @@ export default function App() {
       </div>
     </nav>
   );
-
-  // ── MODAL COMPONENTS ────────────────────────────────────────────────────
 
   const ForgotPasswordM=()=>{
     const [email,setEmail]=useState("");
@@ -450,7 +438,8 @@ export default function App() {
       if(!isValidPhone(phone)){showToast("Enter valid 07 number","err");return;}
       setLd(true);setStep("mpesa");
       try{
-        const res=await fetch("/.netlify/functions/mpesa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:toApiPhone(phone),amount:plan==="weekly"?100:250})});
+        // ✅ UPDATED PRICES: weekly=50, monthly=200
+        const res=await fetch("/.netlify/functions/mpesa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:toApiPhone(phone),amount:plan==="weekly"?50:200})});
         const data=await res.json();
         if(data.success||res.ok){
           const subRes=await fetch("/.netlify/functions/save-subscription",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:user.id,plan,phone})});
@@ -482,7 +471,8 @@ export default function App() {
             <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Subscribe via M-Pesa</h2>
             <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>Instant activation after payment</p>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-              {[{k:"weekly",l:"Weekly",p:"KSh 100",d:"7 days"},{k:"monthly",l:"Monthly",p:"KSh 250",d:"30 days"}].map(pl=>(
+              {/* ✅ UPDATED PRICES: weekly=KSh 50, monthly=KSh 200 */}
+              {[{k:"weekly",l:"Weekly",p:"KSh 50",d:"7 days"},{k:"monthly",l:"Monthly",p:"KSh 200",d:"30 days"}].map(pl=>(
                 <div key={pl.k} onClick={()=>setPlan(pl.k)} style={{border:`2px solid ${plan===pl.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"13px 10px",cursor:"pointer",textAlign:"center",background:plan===pl.k?"rgba(255,180,0,0.06)":"transparent"}}>
                   <div style={{fontWeight:700,color:"#fff",marginBottom:2,fontSize:13}}>{pl.l}</div>
                   <div style={{fontSize:20,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{pl.p}</div>
@@ -491,7 +481,8 @@ export default function App() {
               ))}
             </div>
             <div style={{marginBottom:14}}><label style={lbl}>M-Pesa Phone (07…)</label><input value={phone} onChange={e=>setPhone(e.target.value)} style={inp} placeholder="0712345678" maxLength={10}/></div>
-            <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${plan==="weekly"?"KSh 100":"KSh 250"} via M-Pesa`}</button>
+            {/* ✅ UPDATED PRICES in button */}
+            <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${plan==="weekly"?"KSh 50":"KSh 200"} via M-Pesa`}</button>
           </div>
         )}
       </div>
@@ -593,7 +584,8 @@ export default function App() {
       loadStats();
     },[]);
     const topMat=[...mats].sort((a,b)=>b.downloads-a.downloads)[0];
-    const revenue=(stats.weekly*100)+(stats.monthly*250);
+    // ✅ UPDATED REVENUE CALCULATION: weekly=50, monthly=200
+    const revenue=(stats.weekly*50)+(stats.monthly*200);
     const allStats=[
       {l:"Total Materials",v:mats.length,i:"📄"},
       {l:"Total Downloads",v:mats.reduce((s,m)=>s+(m.downloads||0),0).toLocaleString(),i:"⬇"},
@@ -846,7 +838,8 @@ export default function App() {
           <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div>
             <p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>You've used all 2 free downloads. Subscribe to continue downloading materials.</p>
-            <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 100</button>
+            {/* ✅ UPDATED: From KSh 50 */}
+            <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 50</button>
           </div>
         )}
 
@@ -900,8 +893,6 @@ export default function App() {
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet"/>
       <Nav/>
       <main>
-
-        {/* ── HOME ── */}
         <div style={{display: page==="home" ? "block" : "none"}}>
           <div style={{background:"#080e1c",minHeight:"100dvh"}}>
             <div style={{position:"relative",padding:"44px 20px 48px",textAlign:"center",overflow:"hidden"}}>
@@ -917,8 +908,9 @@ export default function App() {
                 <button onClick={()=>setPage("browse")} style={btnPrimary}>Browse Materials →</button>
                 {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}}>Register Free</button>}
               </div>
+              {/* ✅ UPDATED: From KSh 50 */}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,maxWidth:320,margin:"0 auto"}}>
-                {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["2 Free","Downloads"],["KSh 100","From /week"]].map(([n,l])=>(
+                {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["2 Free","Downloads"],["KSh 50","From /week"]].map(([n,l])=>(
                   <div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}>
                     <div style={{fontSize:17,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div>
                     <div style={{fontSize:10,color:"#555",marginTop:3}}>{l}</div>
@@ -959,9 +951,10 @@ export default function App() {
             <div style={{padding:"24px 16px 36px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
               <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                {/* ✅ UPDATED PRICES: weekly=KSh 50, monthly=KSh 200 */}
                 {[
-                  {name:"Weekly",price:"KSh 100",period:"per week",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"weekly"},
-                  {name:"Monthly",price:"KSh 250",period:"per month",feats:["Everything Weekly","Best Value","Priority Support"],hot:true,k:"monthly"},
+                  {name:"Weekly",price:"KSh 50",period:"per week",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"weekly"},
+                  {name:"Monthly",price:"KSh 200",period:"per month",feats:["Everything Weekly","Best Value","Priority Support"],hot:true,k:"monthly"},
                 ].map(plan=>(
                   <div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px",position:"relative"}}>
                     {plan.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}
@@ -993,7 +986,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── BROWSE ── */}
         <div style={{display: page==="browse" ? "block" : "none"}}>
           <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
