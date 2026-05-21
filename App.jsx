@@ -251,27 +251,14 @@ export default function App() {
   const handleDL = async (mat) => {
     if (isAdmin || isSubscribed) { doDownload(mat); return; }
     if (!user) { setModal("gate"); return; }
-
-    const { data: freshProfile } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single();
-
+    const { data: freshProfile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
     if (freshProfile) setProfile(freshProfile);
-
     const used = freshProfile?.free_downloads_used ?? 0;
-
     if (used < 2) {
       const newUsed = used + 1;
-      await supabase
-        .from("profiles")
-        .update({ free_downloads_used: newUsed })
-        .eq("id", user.id);
-
+      await supabase.from("profiles").update({ free_downloads_used: newUsed }).eq("id", user.id);
       setProfile(p => ({ ...p, free_downloads_used: newUsed }));
       doDownload(mat);
-
       if (newUsed >= 2) {
         showToast("⚠️ You've used all 2 free downloads! Subscribe to continue downloading.", "err");
       } else {
@@ -298,8 +285,7 @@ export default function App() {
   }[type]||"📄");
 
   const cardProps = (m) => ({
-    m,
-    getIcon,
+    m, getIcon,
     onPreview: (mat) => { setPrevMat(mat); setModal("preview"); },
     onDownload: handleDL,
   });
@@ -429,27 +415,50 @@ export default function App() {
     );
   };
 
+  // ✅ FIXED SubscribeM — no longer calls save-subscription after STK push
   const SubscribeM=()=>{
     const [plan,setPlan]=useState("monthly");
     const [phone,setPhone]=useState(profile?.phone||"");
     const [ld,setLd]=useState(false);
     const [step,setStep]=useState("choose");
+
     const pay=async()=>{
       if(!isValidPhone(phone)){showToast("Enter valid 07 number","err");return;}
-      setLd(true);setStep("mpesa");
+      setLd(true);
+      setStep("mpesa");
       try{
-        // ✅ UPDATED PRICES: weekly=50, monthly=200
         const res=await fetch("/.netlify/functions/mpesa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:toApiPhone(phone),amount:plan==="weekly"?50:200})});
         const data=await res.json();
         if(data.success||res.ok){
-          const subRes=await fetch("/.netlify/functions/save-subscription",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:user.id,plan,phone})});
-          const subData=await subRes.json();
-          if(subData.success){setSub({active:true,plan,daysLeft:plan==="weekly"?7:30,expiresAt:subData.expiresAt});setStep("done");}
-          else throw new Error(subData.error||"Save failed");
-        }else{showToast("Payment failed: "+(data.message||"Try again"),"err");setStep("choose");}
-      }catch(e){showToast("Error: "+e.message,"err");setStep("choose");}
+          // ✅ FIXED: Just show waiting — webhook activates plan after real payment
+          setStep("waiting");
+          let attempts=0;
+          const interval=setInterval(async()=>{
+            attempts++;
+            try{
+              const res2=await fetch("/.netlify/functions/check-subscription",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:user.id})});
+              const subData=await res2.json();
+              if(subData.active===true){
+                clearInterval(interval);
+                setSub(subData);
+                setStep("done");
+              } else if(attempts>=24){
+                clearInterval(interval);
+                setStep("timeout");
+              }
+            }catch(e){console.error(e);}
+          },5000);
+        }else{
+          showToast("Payment failed: "+(data.message||"Try again"),"err");
+          setStep("choose");
+        }
+      }catch(e){
+        showToast("Error: "+e.message,"err");
+        setStep("choose");
+      }
       setLd(false);
     };
+
     return(
       <div>
         {step==="done"?(
@@ -459,19 +468,33 @@ export default function App() {
             <p style={{color:"#888",marginBottom:20,fontSize:14}}>Your {plan} plan is now active!</p>
             <button onClick={()=>{setModal(null);setPage("browse");}} style={btnPrimary}>Browse Materials</button>
           </div>
-        ):step==="mpesa"?(
+        ):step==="timeout"?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:44,marginBottom:12}}>⚠️</div>
+            <h3 style={{color:"#fff",margin:"0 0 8px"}}>Payment Not Confirmed</h3>
+            <p style={{color:"#888",fontSize:13,marginBottom:16}}>We didn't receive payment confirmation. If you completed payment, wait a moment and check your dashboard.</p>
+            <button onClick={()=>setStep("choose")} style={{...btnPrimary,marginBottom:10}}>Try Again</button>
+            <button onClick={()=>{setModal(null);setPage("dash");checkSub(user.id);}} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"12px 0",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:14}}>Check Dashboard</button>
+          </div>
+        ):step==="waiting"?(
           <div style={{textAlign:"center",padding:"20px 0"}}>
             <div style={{fontSize:44,marginBottom:12}}>📱</div>
             <h3 style={{color:"#fff",margin:"0 0 8px"}}>Check Your Phone</h3>
             <p style={{color:"#888",fontSize:13}}>STK Push sent to <strong style={{color:"#ffb400"}}>{phone}</strong></p>
-            <p style={{color:"#555",fontSize:12,marginTop:8}}>Enter M-Pesa PIN to complete…</p>
+            <p style={{color:"#555",fontSize:12,marginTop:8}}>Enter your M-Pesa PIN to complete payment.</p>
+            <p style={{color:"#444",fontSize:11,marginTop:12}}>⏳ Waiting for payment confirmation...</p>
+          </div>
+        ):step==="mpesa"?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:44,marginBottom:12}}>📱</div>
+            <h3 style={{color:"#fff",margin:"0 0 8px"}}>Sending STK Push...</h3>
+            <p style={{color:"#888",fontSize:13}}>Please wait…</p>
           </div>
         ):(
           <div>
             <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Subscribe via M-Pesa</h2>
             <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>Instant activation after payment</p>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-              {/* ✅ UPDATED PRICES: weekly=KSh 50, monthly=KSh 200 */}
               {[{k:"weekly",l:"Weekly",p:"KSh 50",d:"7 days"},{k:"monthly",l:"Monthly",p:"KSh 200",d:"30 days"}].map(pl=>(
                 <div key={pl.k} onClick={()=>setPlan(pl.k)} style={{border:`2px solid ${plan===pl.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"13px 10px",cursor:"pointer",textAlign:"center",background:plan===pl.k?"rgba(255,180,0,0.06)":"transparent"}}>
                   <div style={{fontWeight:700,color:"#fff",marginBottom:2,fontSize:13}}>{pl.l}</div>
@@ -481,7 +504,6 @@ export default function App() {
               ))}
             </div>
             <div style={{marginBottom:14}}><label style={lbl}>M-Pesa Phone (07…)</label><input value={phone} onChange={e=>setPhone(e.target.value)} style={inp} placeholder="0712345678" maxLength={10}/></div>
-            {/* ✅ UPDATED PRICES in button */}
             <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${plan==="weekly"?"KSh 50":"KSh 200"} via M-Pesa`}</button>
           </div>
         )}
@@ -584,7 +606,6 @@ export default function App() {
       loadStats();
     },[]);
     const topMat=[...mats].sort((a,b)=>b.downloads-a.downloads)[0];
-    // ✅ UPDATED REVENUE CALCULATION: weekly=50, monthly=200
     const revenue=(stats.weekly*50)+(stats.monthly*200);
     const allStats=[
       {l:"Total Materials",v:mats.length,i:"📄"},
@@ -643,9 +664,7 @@ export default function App() {
     const [progress,setProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
     const aSubs=["All Subjects",...(SUBS_CBC[form.level]||SUBS_844[form.level]||[])];
-
     useEffect(()=>{sessionStorage.setItem("adminForm",JSON.stringify(form));},[form]);
-
     const toggleSub=(s)=>{
       if(s==="All Subjects"){setSelectedSubs(p=>p.length===aSubs.length?[]:aSubs);return;}
       setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
@@ -816,16 +835,14 @@ export default function App() {
   const Dash=()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired=subscription?.reason==="expired";
-    const freeLeft = Math.max(0, 2 - (profile?.free_downloads_used || 0));
-    const allUsed = freeLeft === 0 && !isSubscribed && !expired;
-
+    const freeLeft=Math.max(0,2-(profile?.free_downloads_used||0));
+    const allUsed=freeLeft===0&&!isSubscribed&&!expired;
     return(
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}>
           <span style={{fontSize:18}}>👤</span>
           <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>
         </div>
-
         {expired&&(
           <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>⚠️ Subscription Expired</div>
@@ -833,16 +850,13 @@ export default function App() {
             <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Renew Now</button>
           </div>
         )}
-
         {allUsed&&(
           <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div>
             <p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>You've used all 2 free downloads. Subscribe to continue downloading materials.</p>
-            {/* ✅ UPDATED: From KSh 50 */}
             <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 50</button>
           </div>
         )}
-
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           {[
             {l:"System",v:profile.system,i:"📘"},
@@ -859,19 +873,14 @@ export default function App() {
             </div>
           ))}
         </div>
-
         {!isSubscribed&&!expired&&!allUsed&&(
           <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}>
             <div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div>
-            <p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>
-              You have {freeLeft} free download{freeLeft!==1?"s":""} left. Subscribe for unlimited access.
-            </p>
+            <p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>You have {freeLeft} free download{freeLeft!==1?"s":""} left. Subscribe for unlimited access.</p>
             <button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button>
           </div>
         )}
-
         <button onClick={logout} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",color:"#666",borderRadius:10,padding:"11px 0",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:16}}>🚪 Logout</button>
-
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           <span style={{fontSize:15}}>📚</span>
           <h3 style={{margin:0,fontSize:15,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3>
@@ -883,32 +892,25 @@ export default function App() {
     );
   };
 
-  const bLvls = filt.system==="CBC" ? LEVELS_CBC : filt.system==="8-4-4" ? LEVELS_844 : [...LEVELS_CBC,...LEVELS_844];
-  const bSubs = filt.level
-    ? [...(SUBS_CBC[filt.level]||[]),...(SUBS_844[filt.level]||[])]
-    : ([...new Set([...SUBS_CBC_LIST,...SUBS_844_LIST])].sort());
+  const bLvls=filt.system==="CBC"?LEVELS_CBC:filt.system==="8-4-4"?LEVELS_844:[...LEVELS_CBC,...LEVELS_844];
+  const bSubs=filt.level?[...(SUBS_CBC[filt.level]||[]),...(SUBS_844[filt.level]||[])]:([...new Set([...SUBS_CBC_LIST,...SUBS_844_LIST])].sort());
 
   return(
     <div style={{minHeight:"100dvh",background:"#080e1c",color:"#fff",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;600;700;800&display=swap" rel="stylesheet"/>
       <Nav/>
       <main>
-        <div style={{display: page==="home" ? "block" : "none"}}>
+        <div style={{display:page==="home"?"block":"none"}}>
           <div style={{background:"#080e1c",minHeight:"100dvh"}}>
             <div style={{position:"relative",padding:"44px 20px 48px",textAlign:"center",overflow:"hidden"}}>
               <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse 80% 50% at 50% 0%,rgba(255,180,0,0.08),transparent)",pointerEvents:"none"}}/>
               <div style={{display:"inline-block",background:"rgba(255,180,0,0.1)",border:"1px solid rgba(255,180,0,0.28)",borderRadius:50,padding:"5px 16px",fontSize:11,color:"#ffb400",fontWeight:700,marginBottom:16,textTransform:"uppercase",letterSpacing:1.2}}>Kenya's #1 Revision Platform</div>
-              <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(26px,7vw,46px)",fontWeight:900,color:"#fff",lineHeight:1.15,margin:"0 0 14px"}}>
-                Ace Every Exam with<br/><span style={{color:"#ffb400"}}>Toppluss Revisions</span>
-              </h1>
-              <p style={{color:"#888",fontSize:14,maxWidth:360,margin:"0 auto 26px",lineHeight:1.7}}>
-                Curated Notes, Past Papers & Marking Schemes for CBC & 8-4-4 students across Kenya.
-              </p>
+              <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(26px,7vw,46px)",fontWeight:900,color:"#fff",lineHeight:1.15,margin:"0 0 14px"}}>Ace Every Exam with<br/><span style={{color:"#ffb400"}}>Toppluss Revisions</span></h1>
+              <p style={{color:"#888",fontSize:14,maxWidth:360,margin:"0 auto 26px",lineHeight:1.7}}>Curated Notes, Past Papers & Marking Schemes for CBC & 8-4-4 students across Kenya.</p>
               <div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:320,margin:"0 auto 36px"}}>
                 <button onClick={()=>setPage("browse")} style={btnPrimary}>Browse Materials →</button>
                 {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}}>Register Free</button>}
               </div>
-              {/* ✅ UPDATED: From KSh 50 */}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,maxWidth:320,margin:"0 auto"}}>
                 {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["2 Free","Downloads"],["KSh 50","From /week"]].map(([n,l])=>(
                   <div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}>
@@ -921,13 +923,7 @@ export default function App() {
             <div style={{padding:"0 16px 18px"}}>
               <div style={{position:"relative"}}>
                 <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,color:"#444"}}>🔍</span>
-                <input
-                  placeholder="Search notes, past papers, subjects…"
-                  value={search}
-                  onChange={e=>setSearch(e.target.value)}
-                  onKeyDown={e=>{if(e.key==="Enter"&&search) setPage("browse");}}
-                  style={{...inp,paddingLeft:38,fontSize:13,background:"rgba(255,255,255,0.05)"}}
-                />
+                <input placeholder="Search notes, past papers, subjects…" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&search) setPage("browse");}} style={{...inp,paddingLeft:38,fontSize:13,background:"rgba(255,255,255,0.05)"}}/>
               </div>
             </div>
             {!loading&&topDL.length>0&&(
@@ -944,14 +940,10 @@ export default function App() {
               </div>
             )}
             {loading&&<div style={{textAlign:"center",padding:"60px 0",color:"#444"}}>⏳ Loading materials…</div>}
-            {!loading&&mats.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:"#444"}}>
-              <div style={{fontSize:40,marginBottom:10}}>📚</div>
-              <div style={{fontSize:14,fontWeight:600,color:"#555"}}>No materials yet — check back soon!</div>
-            </div>}
+            {!loading&&mats.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:"#444"}}><div style={{fontSize:40,marginBottom:10}}>📚</div><div style={{fontSize:14,fontWeight:600,color:"#555"}}>No materials yet — check back soon!</div></div>}
             <div style={{padding:"24px 16px 36px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
               <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {/* ✅ UPDATED PRICES: weekly=KSh 50, monthly=KSh 200 */}
                 {[
                   {name:"Weekly",price:"KSh 50",period:"per week",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"weekly"},
                   {name:"Monthly",price:"KSh 200",period:"per month",feats:["Everything Weekly","Best Value","Priority Support"],hot:true,k:"monthly"},
@@ -959,15 +951,10 @@ export default function App() {
                   <div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px",position:"relative"}}>
                     {plan.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                      <div>
-                        <div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{plan.name}</div>
-                        <div style={{fontSize:11,color:"#666"}}>{plan.period}</div>
-                      </div>
+                      <div><div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{plan.name}</div><div style={{fontSize:11,color:"#666"}}>{plan.period}</div></div>
                       <div style={{fontSize:24,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{plan.price}</div>
                     </div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
-                      {plan.feats.map(f=><span key={f} style={{fontSize:12,color:"#aaa"}}>✅ {f}</span>)}
-                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>{plan.feats.map(f=><span key={f} style={{fontSize:12,color:"#aaa"}}>✅ {f}</span>)}</div>
                     <button onClick={()=>setModal(user?"subscribe":"register")} style={btnPrimary}>{user?"Pay via M-Pesa":"Get Started"}</button>
                   </div>
                 ))}
@@ -985,8 +972,7 @@ export default function App() {
             </div>
           </div>
         </div>
-
-        <div style={{display: page==="browse" ? "block" : "none"}}>
+        <div style={{display:page==="browse"?"block":"none"}}>
           <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
               <span style={{fontSize:18}}>📚</span>
@@ -995,12 +981,7 @@ export default function App() {
             </div>
             <div style={{position:"relative",marginBottom:10}}>
               <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#444"}}>🔍</span>
-              <input
-                placeholder="Search…"
-                value={search}
-                onChange={e=>setSearch(e.target.value)}
-                style={{...inp,paddingLeft:36,fontSize:13}}
-              />
+              <input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{...inp,paddingLeft:36,fontSize:13}}/>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
               {[
@@ -1016,22 +997,13 @@ export default function App() {
               ))}
             </div>
             <button onClick={()=>{setFilt({system:"",level:"",subject:"",type:""});setSearch("");}} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",color:"#777",borderRadius:9,padding:"9px 0",cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:16}}>Clear Filters</button>
-            {loading
-              ? <div style={{textAlign:"center",padding:"60px 0",color:"#444"}}>⏳ Loading…</div>
-              : filtMats.length===0
-                ? <div style={{textAlign:"center",padding:"60px 0",color:"#555"}}><div style={{fontSize:36,marginBottom:10}}>🔍</div><div style={{fontSize:14,fontWeight:600}}>No results found</div></div>
-                : <div style={{display:"flex",flexDirection:"column",gap:10}}>{filtMats.map(m=><Card key={m.id} {...cardProps(m)}/>)}</div>
-            }
+            {loading?<div style={{textAlign:"center",padding:"60px 0",color:"#444"}}>⏳ Loading…</div>:filtMats.length===0?<div style={{textAlign:"center",padding:"60px 0",color:"#555"}}><div style={{fontSize:36,marginBottom:10}}>🔍</div><div style={{fontSize:14,fontWeight:600}}>No results found</div></div>:<div style={{display:"flex",flexDirection:"column",gap:10}}>{filtMats.map(m=><Card key={m.id} {...cardProps(m)}/>)}</div>}
           </div>
         </div>
-
-        {page==="dash" && <Dash/>}
-        {page==="admin" && isAdmin && <Admin/>}
-
+        {page==="dash"&&<Dash/>}
+        {page==="admin"&&isAdmin&&<Admin/>}
       </main>
-
-      <a href="https://wa.me/254755803149?text=Hello%2C%20I%20need%20help%20with%20Toppluss%20Revisions" target="_blank" rel="noopener noreferrer"
-        style={{position:"fixed",bottom:20,right:16,width:52,height:52,background:"#25D366",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(37,211,102,0.5)",zIndex:140,textDecoration:"none"}}>
+      <a href="https://wa.me/254755803149?text=Hello%2C%20I%20need%20help%20with%20Toppluss%20Revisions" target="_blank" rel="noopener noreferrer" style={{position:"fixed",bottom:20,right:16,width:52,height:52,background:"#25D366",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(37,211,102,0.5)",zIndex:140,textDecoration:"none"}}>
         <WaIcon/>
       </a>
       <Toast {...toast}/>
