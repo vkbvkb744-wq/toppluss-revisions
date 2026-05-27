@@ -30,8 +30,6 @@ exports.handler = async (event) => {
     const days = PLAN_DAYS[plan];
     const now = new Date();
     const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-
-    // ✅ ADDED: capture checkout ID
     const checkoutRequestId = body.checkout_request_id || body.id || body.invoice_id || null;
 
     const { data: profile } = await supabase
@@ -51,7 +49,6 @@ exports.handler = async (event) => {
       .eq("user_id", profile.id)
       .eq("status", "active");
 
-    // ✅ ADDED: checkout_request_id in insert
     await supabase.from("subscriptions").insert([{
       user_id: profile.id,
       plan,
