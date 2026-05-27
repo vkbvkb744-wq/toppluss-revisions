@@ -31,6 +31,9 @@ exports.handler = async (event) => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
+    // ✅ ADDED: capture checkout ID
+    const checkoutRequestId = body.checkout_request_id || body.id || body.invoice_id || null;
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("id")
@@ -48,6 +51,7 @@ exports.handler = async (event) => {
       .eq("user_id", profile.id)
       .eq("status", "active");
 
+    // ✅ ADDED: checkout_request_id in insert
     await supabase.from("subscriptions").insert([{
       user_id: profile.id,
       plan,
@@ -55,9 +59,10 @@ exports.handler = async (event) => {
       status: "active",
       started_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
+      checkout_request_id: checkoutRequestId,
     }]);
 
-    console.log("Activated:", phone, plan);
+    console.log("Activated:", phone, plan, checkoutRequestId);
     return { statusCode: 200, body: "OK" };
 
   } catch (err) {
