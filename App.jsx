@@ -6,6 +6,9 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
+// ✅ Your Cloudflare Worker URL — update this after deploying Worker
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || "https://toppluss-migrate-r2.YOUR_SUBDOMAIN.workers.dev";
+
 const COLORS = ["#e74c3c","#e67e22","#f39c12","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00b894","#0984e3"];
 
 const TYPES = [
@@ -60,6 +63,34 @@ function getFakeDownloads(id) {
 const toApiPhone = (p) => p.startsWith("07") ? "254"+p.slice(1) : p.startsWith("+254") ? p.slice(1) : p;
 const isValidPhone = (p) => /^07\d{8}$/.test(p);
 
+// ✅ Check if URL is already an R2 URL
+const isR2Url = (url) => url && (url.includes("r2.dev") || url.includes("cloudflarestorage.com"));
+
+// ✅ Check if URL is a Google Drive URL
+const isDriveUrl = (url) => url && (url.includes("drive.google.com") || url.includes("docs.google.com"));
+
+// ✅ Get preview embed URL — R2 uses Google Docs viewer, Drive uses Drive embed
+const getEmbedUrl = (url) => {
+  if (!url) return null;
+  if (isR2Url(url)) {
+    return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+  }
+  const m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m1) return `https://drive.google.com/file/d/${m1[1]}/preview`;
+  const m2 = url.match(/id=([a-zA-Z0-9_-]+)/);
+  if (m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
+  return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+};
+
+// ✅ Normalize Google Drive URL for Worker to fetch
+const normalizeDriveUrl = (url) => {
+  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
+  const m2 = url.match(/id=([a-zA-Z0-9_-]+)/);
+  if (m2) return `https://drive.google.com/uc?export=download&id=${m2[1]}`;
+  return url.trim();
+};
+
 const inp = {
   background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",
   borderRadius:10,padding:"12px 14px",color:"#fff",fontSize:14,
@@ -86,7 +117,7 @@ function Toast({ msg, type }) {
   return (
     <div style={{
       position:"fixed",bottom:20,left:16,right:16,
-      background:type==="err"?"#c0392b":"#27ae60",
+      background:type==="err"?"#c0392b":type==="info"?"#2980b9":"#27ae60",
       color:"#fff",padding:"13px 20px",borderRadius:12,
       fontWeight:700,fontSize:14,zIndex:9999,textAlign:"center",
       boxShadow:"0 4px 20px rgba(0,0,0,0.5)",
@@ -115,6 +146,14 @@ function Modal({ children, onClose }) {
       </div>
     </div>
   );
+}
+
+// ✅ R2 Storage Badge
+function StorageBadge({ url }) {
+  if (!url) return <span style={{fontSize:10,color:"#444"}}>— No file</span>;
+  if (isR2Url(url)) return <span style={{fontSize:10,color:"#27ae60",fontWeight:700}}>☁ R2 ✅</span>;
+  if (isDriveUrl(url)) return <span style={{fontSize:10,color:"#f39c12",fontWeight:700}}>🔄 Drive</span>;
+  return <span style={{fontSize:10,color:"#3498db",fontWeight:700}}>🔗 URL</span>;
 }
 
 function Card({ m, getIcon, onPreview, onDownload }) {
@@ -198,11 +237,9 @@ export default function App() {
 
   useEffect(()=>{loadMats();},[]);
 
-  // ✅ RESCUE: On app load, check if there's a pending payment
   useEffect(()=>{
     const pendingCheckout = localStorage.getItem("pending_mpesa_checkout");
     if(!pendingCheckout || !user) return;
-
     const recover = async () => {
       try {
         const { data } = await supabase
@@ -211,7 +248,6 @@ export default function App() {
           .eq("checkout_request_id", pendingCheckout)
           .eq("status", "active")
           .single();
-
         if (data) {
           localStorage.removeItem("pending_mpesa_checkout");
           localStorage.removeItem("pending_mpesa_plan");
@@ -219,11 +255,8 @@ export default function App() {
           await checkSub(user.id);
           showToast("✅ Payment confirmed! Access restored.");
         }
-      } catch(e) {
-        console.log("No pending payment found");
-      }
+      } catch(e) { console.log("No pending payment found"); }
     };
-
     recover();
   },[user]);
 
@@ -249,6 +282,32 @@ export default function App() {
     }catch(e){console.error(e);}
   };
 
+  // ✅ Trigger Cloudflare Worker to migrate Drive URL → R2
+  const migrateToR2 = async (materialId, driveUrl, fileName) => {
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          materialId,
+          driveUrl: normalizeDriveUrl(driveUrl),
+          fileName: fileName || `material_${materialId}.pdf`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.r2Url) {
+        // Update local state with new R2 URL
+        setMats(prev => prev.map(m =>
+          m.id === materialId ? { ...m, file_url: data.r2Url } : m
+        ));
+        return { success: true, r2Url: data.r2Url };
+      }
+      return { success: false, error: data.error || "Migration failed" };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  };
+
   const isSubscribed=subscription?.active===true;
   const isAdmin=profile?.role==="admin";
   const userName=profile?.full_name||user?.email?.split("@")[0]||"Student";
@@ -271,7 +330,10 @@ export default function App() {
     setMats(p=>p.map(m=>m.id===mat.id?{...m,downloads:(m.downloads||0)+1}:m));
     if(user) await supabase.from("download_logs").insert([{user_id:user.id,material_id:mat.id}]);
     if(mat.file_url){
-      const a=document.createElement("a");a.href=mat.file_url;a.download=mat.title+".pdf";a.target="_blank";
+      const a=document.createElement("a");
+      a.href=mat.file_url;
+      a.download=mat.title+".pdf";
+      a.target="_blank";
       document.body.appendChild(a);a.click();document.body.removeChild(a);
       showToast("⬇ Downloading: "+mat.title);
     } else showToast("File not available yet","err");
@@ -362,7 +424,7 @@ export default function App() {
           <div style={{textAlign:"center",padding:"20px 0"}}>
             <div style={{fontSize:48,marginBottom:12}}>📧</div>
             <p style={{color:"#27ae60",fontWeight:700,fontSize:15,marginBottom:8}}>Email sent!</p>
-            <p style={{color:"#888",fontSize:13}}>Check your inbox and click the reset link. Then come back and log in with your new password.</p>
+            <p style={{color:"#888",fontSize:13}}>Check your inbox and click the reset link.</p>
             <button onClick={()=>setModal("login")} style={{...btnPrimary,marginTop:16}}>Back to Login</button>
           </div>
         ):(
@@ -441,7 +503,6 @@ export default function App() {
     );
   };
 
-  // ✅ FULLY REWRITTEN SubscribeM with Realtime + localStorage
   const SubscribeM=()=>{
     const [plan,setPlan]=useState("monthly");
     const [phone,setPhone]=useState(profile?.phone||"");
@@ -452,49 +513,26 @@ export default function App() {
       if(!isValidPhone(phone)){showToast("Enter valid 07 number","err");return;}
       setLd(true);
       setStep("mpesa");
-
       try{
         const res=await fetch("/.netlify/functions/mpesa",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({
-            phone:toApiPhone(phone),
-            amount:plan==="weekly"?50:200,
-            plan,
-            userId:user.id
-          })
+          body:JSON.stringify({phone:toApiPhone(phone),amount:plan==="weekly"?50:200,plan,userId:user.id})
         });
-
         const data=await res.json();
-
         if(!data.success&&!res.ok){
           showToast("Payment failed: "+(data.message||"Try again"),"err");
-          setStep("choose");
-          setLd(false);
-          return;
+          setStep("choose");setLd(false);return;
         }
-
-        // ✅ Save checkout ID to localStorage immediately
         const checkoutId=data.id||data.checkout_request_id||data.invoice_id||("pending_"+Date.now());
         localStorage.setItem("pending_mpesa_checkout", checkoutId);
         localStorage.setItem("pending_mpesa_plan", plan);
         localStorage.setItem("pending_mpesa_phone", phone);
         localStorage.setItem("pending_mpesa_user", user.id);
-
-        setStep("waiting");
-        setLd(false);
-
-        // ✅ Supabase Realtime — listen for webhook insert
+        setStep("waiting");setLd(false);
         const channel=supabase
           .channel("payment-"+checkoutId)
-          .on(
-            "postgres_changes",
-            {
-              event:"INSERT",
-              schema:"public",
-              table:"subscriptions",
-              filter:`user_id=eq.${user.id}`,
-            },
+          .on("postgres_changes",{event:"INSERT",schema:"public",table:"subscriptions",filter:`user_id=eq.${user.id}`},
             async(payload)=>{
               const row=payload.new;
               if(row&&row.status==="active"){
@@ -507,19 +545,14 @@ export default function App() {
                 setStep("done");
               }
             }
-          )
-          .subscribe();
-
-        // ✅ Timeout after 3 minutes
+          ).subscribe();
         setTimeout(()=>{
           try{ channel.unsubscribe(); }catch(e){}
           setStep(prev=>prev==="waiting"?"timeout":prev);
         },180000);
-
       }catch(e){
         showToast("Error: "+e.message,"err");
-        setStep("choose");
-        setLd(false);
+        setStep("choose");setLd(false);
       }
     };
 
@@ -536,7 +569,7 @@ export default function App() {
           <div style={{textAlign:"center",padding:"20px 0"}}>
             <div style={{fontSize:44,marginBottom:12}}>⚠️</div>
             <h3 style={{color:"#fff",margin:"0 0 8px"}}>Payment Not Confirmed</h3>
-            <p style={{color:"#888",fontSize:13,marginBottom:16}}>We didn't receive confirmation. If you paid, check your dashboard — it may still activate.</p>
+            <p style={{color:"#888",fontSize:13,marginBottom:16}}>If you paid, check your dashboard — it may still activate.</p>
             <button onClick={()=>setStep("choose")} style={{...btnPrimary,marginBottom:10}}>Try Again</button>
             <button onClick={()=>{setModal(null);setPage("dash");checkSub(user.id);}} style={{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"12px 0",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:14}}>Check Dashboard</button>
           </div>
@@ -547,7 +580,6 @@ export default function App() {
             <p style={{color:"#888",fontSize:13}}>STK Push sent to <strong style={{color:"#ffb400"}}>{phone}</strong></p>
             <p style={{color:"#555",fontSize:12,marginTop:8}}>Enter your M-Pesa PIN to complete payment.</p>
             <p style={{color:"#444",fontSize:11,marginTop:12}}>⏳ Waiting for confirmation…</p>
-            <p style={{color:"#333",fontSize:10,marginTop:8}}>You can minimize the app — your payment is tracked.</p>
           </div>
         ):step==="mpesa"?(
           <div style={{textAlign:"center",padding:"20px 0"}}>
@@ -590,15 +622,8 @@ export default function App() {
 
   const PreviewM=()=>{
     if(!prevMat) return null;
-    const getEmbedUrl=(url)=>{
-      if(!url) return null;
-      const m1=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      if(m1) return `https://drive.google.com/file/d/${m1[1]}/preview`;
-      const m2=url.match(/id=([a-zA-Z0-9_-]+)/);
-      if(m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
-      return null;
-    };
-    const embedUrl=getEmbedUrl(prevMat.file_url);
+    const embedUrl = getEmbedUrl(prevMat.file_url);
+    const fileIsR2 = isR2Url(prevMat.file_url);
     return(
       <div>
         <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"center"}}>
@@ -607,6 +632,8 @@ export default function App() {
             <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase"}}>{prevMat.system} · {prevMat.level}</div>
             <div style={{fontSize:14,fontWeight:700,color:"#fff",margin:"2px 0"}}>{prevMat.title}</div>
             <div style={{fontSize:11,color:"#666"}}>{prevMat.subject} · {prevMat.type}</div>
+            {/* ✅ Show storage badge */}
+            <div style={{marginTop:3}}><StorageBadge url={prevMat.file_url}/></div>
           </div>
         </div>
         {prevMat.description&&(
@@ -616,7 +643,9 @@ export default function App() {
         )}
         {(isSubscribed||isAdmin)&&embedUrl?(
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,color:"#27ae60",fontWeight:700,marginBottom:6}}>✅ Subscriber Preview — Full Document</div>
+            <div style={{fontSize:11,color:"#27ae60",fontWeight:700,marginBottom:6}}>
+              ✅ {fileIsR2 ? "☁ R2 Preview — Fast & Unlimited" : "Subscriber Preview — Full Document"}
+            </div>
             <div style={{position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid rgba(255,180,0,0.2)"}}>
               <iframe src={embedUrl} style={{width:"100%",height:480,border:"none",display:"block"}} allow="autoplay" title={prevMat.title}/>
             </div>
@@ -648,6 +677,7 @@ export default function App() {
 
   const AnalyticsTab=()=>{
     const [stats,setStats]=useState({users:0,subscribers:0,weekly:0,monthly:0});
+    const [r2Stats,setR2Stats]=useState({total:0,migrated:0,pending:0});
     useEffect(()=>{
       const loadStats=async()=>{
         const{count:users}=await supabase.from("profiles").select("*",{count:"exact",head:true});
@@ -657,6 +687,11 @@ export default function App() {
         setStats({users:users||0,subscribers:subs||0,weekly:weekly||0,monthly:monthly||0});
       };
       loadStats();
+      // ✅ R2 migration stats
+      const total = mats.length;
+      const migrated = mats.filter(m => isR2Url(m.file_url)).length;
+      const pending = mats.filter(m => isDriveUrl(m.file_url)).length;
+      setR2Stats({ total, migrated, pending });
     },[]);
     const topMat=[...mats].sort((a,b)=>b.downloads-a.downloads)[0];
     const revenue=(stats.weekly*50)+(stats.monthly*200);
@@ -666,6 +701,7 @@ export default function App() {
       {l:"Weekly Plans",v:stats.weekly,i:"📅"},{l:"Monthly Plans",v:stats.monthly,i:"📆"},
       {l:"Est. Revenue",v:`KSh ${revenue.toLocaleString()}`,i:"💰",c:"#ffb400"},
       {l:"CBC Materials",v:mats.filter(m=>m.system==="CBC").length,i:"📘"},{l:"8-4-4 Materials",v:mats.filter(m=>m.system==="8-4-4").length,i:"📗"},
+      {l:"On R2 ✅",v:r2Stats.migrated,i:"☁",c:"#27ae60"},{l:"On Drive ⏳",v:r2Stats.pending,i:"🔄",c:"#f39c12"},
       {l:"Notes",v:mats.filter(m=>m.type==="Notes").length,i:"📝"},{l:"Past Papers",v:mats.filter(m=>m.type==="Past Papers").length,i:"📄"},
       {l:"Marking Schemes",v:mats.filter(m=>m.type==="Marking Schemes").length,i:"✅"},{l:"Revision Papers",v:mats.filter(m=>m.type==="Revision Papers").length,i:"📑"},
       {l:"Assignments",v:mats.filter(m=>m.type==="Assignments").length,i:"📋"},{l:"Exams",v:mats.filter(m=>m.type==="Exams").length,i:"📝"},
@@ -675,6 +711,18 @@ export default function App() {
     return(
       <div>
         {topMat&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:12,padding:"12px",marginBottom:14}}><div style={{fontSize:10,color:"#ffb400",fontWeight:700,textTransform:"uppercase",marginBottom:4}}>🏆 Most Downloaded</div><div style={{fontSize:13,color:"#fff",fontWeight:700}}>{topMat.title}</div><div style={{fontSize:11,color:"#888"}}>{topMat.subject} · {topMat.downloads||0} downloads</div></div>)}
+        {/* ✅ R2 Migration Progress Bar */}
+        <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:14}}>
+          <div style={{fontSize:11,color:"#aaa",fontWeight:700,marginBottom:8,textTransform:"uppercase"}}>☁ R2 Migration Status</div>
+          <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,height:10,marginBottom:8,overflow:"hidden"}}>
+            <div style={{height:"100%",background:"linear-gradient(90deg,#27ae60,#2ecc71)",width:`${r2Stats.total>0?(r2Stats.migrated/r2Stats.total)*100:0}%`,borderRadius:8,transition:"width 0.5s"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}>
+            <span style={{color:"#27ae60"}}>☁ {r2Stats.migrated} on R2</span>
+            <span style={{color:"#f39c12"}}>🔄 {r2Stats.pending} on Drive</span>
+            <span style={{color:"#555"}}>{r2Stats.total} total</span>
+          </div>
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           {allStats.map(c=>(<div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px 12px"}}><div style={{fontSize:18,marginBottom:5}}>{c.i}</div><div style={{fontSize:10,color:"#666",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div><div style={{fontSize:18,fontWeight:900,color:c.c||"#ffb400",fontFamily:"'Playfair Display',serif"}}>{c.v}</div></div>))}
         </div>
@@ -687,81 +735,90 @@ export default function App() {
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
     const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
     const [selectedSubs,setSelectedSubs]=useState([]);
-    const [uploadMode,setUploadMode]=useState("url");
-    const [fileBase64,setFileBase64]=useState(null);
-    const [fileName,setFileName]=useState("");
-    const [fileSize,setFileSize]=useState(0);
     const [pasteUrl,setPasteUrl]=useState("");
     const [uploading,setUploading]=useState(false);
     const [progress,setProgress]=useState("");
+    const [migratingIds,setMigratingIds]=useState(new Set());
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
     const aSubs=["All Subjects",...(SUBS_CBC[form.level]||SUBS_844[form.level]||[])];
     useEffect(()=>{sessionStorage.setItem("adminForm",JSON.stringify(form));},[form]);
     const toggleSub=(s)=>{if(s==="All Subjects"){setSelectedSubs(p=>p.length===aSubs.length?[]:aSubs);return;}setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);};
-    const clearFile=()=>{setFileBase64(null);setFileName("");setFileSize(0);};
-    const handleFileSelect=(e)=>{
-      const f=e.target.files?.[0];
-      if(!f){showToast("No file selected","err");return;}
-      const isPdf=f.type==="application/pdf"||f.type===""||f.name.toLowerCase().endsWith(".pdf");
-      if(!isPdf){showToast("❌ Please pick a .pdf file","err");clearFile();e.target.value="";return;}
-      setFileName(f.name);setFileSize(f.size);showToast("📄 Reading file…");
-      const reader=new FileReader();
-      reader.onload=()=>{setFileBase64(reader.result.split(",")[1]);showToast("✅ File loaded — ready to upload!");};
-      reader.onerror=()=>showToast("Could not read file. Try again.","err");
-      reader.readAsDataURL(f);e.target.value="";
-    };
-    const normalizeUrl=(url)=>{const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);if(m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;return url.trim();};
+
+    // ✅ Save then migrate to R2 automatically
     const upload=async()=>{
       if(!form.title){showToast("Fill Title","err");return;}
       if(selectedSubs.length===0){showToast("Select at least one Subject","err");return;}
-      const subjectsToSave=selectedSubs.includes("All Subjects")?["All Subjects"]:selectedSubs;
-      if(uploadMode==="url"){
-        const url=pasteUrl.trim();
-        if(!url){showToast("Paste a Google Drive URL first","err");return;}
-        setUploading(true);setProgress("Saving…");
-        try{
-          const finalUrl=normalizeUrl(url);
-          for(let i=0;i<subjectsToSave.length;i++){
-            const sub=subjectsToSave[i];setProgress(`Saving ${i+1}/${subjectsToSave.length}: ${sub}…`);
-            const{error}=await supabase.from("materials").insert([{title:form.title,description:form.description,system:form.system,level:form.level,subject:sub,type:form.type,file_url:finalUrl,downloads:0}]);
-            if(error) throw new Error(error.message);
-          }
-          showToast(`✅ Saved for ${subjectsToSave.length} subject(s)!`);
-          setForm({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
-          sessionStorage.removeItem("adminForm");setPasteUrl("");setSelectedSubs([]);await loadMats();
-        }catch(err){showToast("Failed: "+err.message,"err");}
-        finally{setUploading(false);setProgress("");}
-        return;
-      }
-      if(!fileBase64){showToast("Please select a PDF file first","err");return;}
-      setUploading(true);setProgress("Uploading to storage…");
+      const url=pasteUrl.trim();
+      if(!url){showToast("Paste a Google Drive URL first","err");return;}
+      const subjectsToSave=selectedSubs.includes("All Subjects")?aSubs.filter(s=>s!=="All Subjects"):selectedSubs;
+      setUploading(true);
+      setProgress("Saving to database…");
       try{
-        const byteChars=atob(fileBase64);const byteArr=new Uint8Array(byteChars.length);
-        for(let i=0;i<byteChars.length;i++) byteArr[i]=byteChars.charCodeAt(i);
-        const blob=new Blob([byteArr],{type:"application/pdf"});
-        const safeName=`${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-        const{error:uploadError}=await supabase.storage.from("materials").upload(safeName,blob,{contentType:"application/pdf",upsert:false});
-        if(uploadError) throw new Error(uploadError.message);
-        const{data:{publicUrl}}=supabase.storage.from("materials").getPublicUrl(safeName);
+        const savedIds = [];
         for(let i=0;i<subjectsToSave.length;i++){
-          const sub=subjectsToSave[i];setProgress(`Saving ${i+1}/${subjectsToSave.length}: ${sub}…`);
-          const{error:dbError}=await supabase.from("materials").insert([{title:form.title,description:form.description,system:form.system,level:form.level,subject:sub,type:form.type,file_url:publicUrl,downloads:0}]);
-          if(dbError) throw new Error(dbError.message);
+          const sub=subjectsToSave[i];
+          setProgress(`Saving ${i+1}/${subjectsToSave.length}: ${sub}…`);
+          const{data,error}=await supabase.from("materials").insert([{
+            title:form.title,description:form.description,
+            system:form.system,level:form.level,
+            subject:sub,type:form.type,
+            file_url:url, // temporary Drive URL
+            downloads:0
+          }]).select();
+          if(error) throw new Error(error.message);
+          if(data?.[0]) savedIds.push(data[0].id);
         }
-        showToast(`✅ Uploaded for ${subjectsToSave.length} subject(s)!`);
+        showToast(`✅ Saved ${subjectsToSave.length} subject(s)! Now migrating to R2…`,"info");
         setForm({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
-        sessionStorage.removeItem("adminForm");clearFile();setSelectedSubs([]);await loadMats();
-      }catch(err){showToast("Upload failed: "+err.message,"err");}
-      finally{setUploading(false);setProgress("");}
+        sessionStorage.removeItem("adminForm");setPasteUrl("");setSelectedSubs([]);
+        await loadMats();
+        setUploading(false);setProgress("");
+
+        // ✅ Migrate each saved material to R2 in background
+        for(const id of savedIds){
+          setMigratingIds(prev=>new Set([...prev,id]));
+          const result = await migrateToR2(id, url, `${form.title.replace(/\s+/g,"_")}.pdf`);
+          setMigratingIds(prev=>{const s=new Set(prev);s.delete(id);return s;});
+          if(result.success){
+            showToast(`☁ Migrated to R2 successfully!`);
+          } else {
+            showToast(`⚠️ R2 migration failed: ${result.error}. File still available via Drive.`,"err");
+          }
+        }
+      }catch(err){
+        showToast("Failed: "+err.message,"err");
+        setUploading(false);setProgress("");
+      }
     };
+
+    // ✅ Manually migrate a single material to R2
+    const manualMigrate = async (mat) => {
+      if(!isDriveUrl(mat.file_url)){showToast("Already on R2 or not a Drive URL","err");return;}
+      setMigratingIds(prev=>new Set([...prev,mat.id]));
+      showToast("⏳ Migrating to R2…","info");
+      const result = await migrateToR2(mat.id, mat.file_url, `${mat.title.replace(/\s+/g,"_")}.pdf`);
+      setMigratingIds(prev=>{const s=new Set(prev);s.delete(mat.id);return s;});
+      if(result.success) showToast("☁ Moved to R2! ✅");
+      else showToast("Migration failed: "+result.error,"err");
+    };
+
     return(
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><span style={{fontSize:18}}>🛠</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Admin Dashboard</h2></div>
         <div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto"}}>
           {["upload","materials","analytics"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{background:tab===t?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.04)",border:`1px solid ${tab===t?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,color:tab===t?"#ffb400":"#888",padding:"8px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>{t==="upload"?"⬆ Upload":t==="materials"?"📋 Materials":"📊 Analytics"}</button>))}
         </div>
+
         {tab==="upload"&&(
           <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:16}}>
+            {/* ✅ R2 info banner */}
+            <div style={{background:"rgba(39,174,96,0.08)",border:"1px solid rgba(39,174,96,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:18}}>☁</span>
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:"#27ae60"}}>Auto R2 Migration Active</div>
+                <div style={{fontSize:11,color:"#555"}}>Files are automatically moved from Drive to R2 after saving</div>
+              </div>
+            </div>
             <div style={{display:"grid",gap:12}}>
               <div><label style={lbl}>Title *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} style={inp} placeholder="e.g. Mathematics Notes – Grade 9"/></div>
               <div><label style={lbl}>Description</label><textarea value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} style={{...inp,minHeight:72,resize:"vertical",lineHeight:1.5}} placeholder="Brief summary…"/></div>
@@ -778,19 +835,66 @@ export default function App() {
                 {selectedSubs.length>0&&<div style={{marginTop:6,fontSize:11,color:"#27ae60"}}>✅ Selected: {selectedSubs.join(", ")}</div>}
               </div>
               <div>
-                <label style={lbl}>Upload Method</label>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  {[{k:"url",icon:"🔗",label:"Paste URL"},{k:"file",icon:"📁",label:"Upload File"}].map(m=>(<button key={m.k} onClick={()=>setUploadMode(m.k)} style={{border:`2px solid ${uploadMode===m.k?"#ffb400":"rgba(255,255,255,0.1)"}`,background:uploadMode===m.k?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.03)",color:uploadMode===m.k?"#ffb400":"#888",borderRadius:10,padding:"12px 8px",cursor:"pointer",fontWeight:700,fontSize:13,textAlign:"center"}}><div style={{fontSize:22,marginBottom:4}}>{m.icon}</div>{m.label}</button>))}
-                </div>
+                <label style={lbl}>📎 Paste Google Drive Link *</label>
+                <textarea value={pasteUrl} onChange={e=>setPasteUrl(e.target.value)} placeholder={"Paste your Google Drive share link:\nhttps://drive.google.com/file/d/XXXX/view\n\nFile will be automatically moved to R2 ☁"} style={{...inp,minHeight:90,resize:"vertical",lineHeight:1.6,fontSize:12}}/>
+                <div style={{marginTop:6,fontSize:11,color:"#555"}}>📌 Open PDF in Google Drive → tap ⋮ → Share → Copy link → paste above</div>
               </div>
-              {uploadMode==="url"&&(<div><label style={lbl}>PDF File * (Paste Google Drive Link)</label><textarea value={pasteUrl} onChange={e=>setPasteUrl(e.target.value)} placeholder={"Paste your Google Drive share link here:\nhttps://drive.google.com/file/d/XXXX/view?usp=sharing\n\nOr any direct PDF URL"} style={{...inp,minHeight:90,resize:"vertical",lineHeight:1.6,fontSize:12}}/><div style={{marginTop:6,fontSize:11,color:"#555"}}>📌 Open PDF in Google Drive → tap ⋮ → Share → Copy link → paste above</div></div>)}
-              {uploadMode==="file"&&(<div><label style={lbl}>Select PDF File</label><div style={{position:"relative"}}><div style={{border:`2px dashed ${fileBase64?"rgba(39,174,96,0.6)":"rgba(255,180,0,0.35)"}`,borderRadius:10,padding:"24px 16px",textAlign:"center",background:fileBase64?"rgba(39,174,96,0.06)":"rgba(255,180,0,0.03)",minHeight:110,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}>{fileBase64?(<><div style={{fontSize:28}}>📄</div><div style={{color:"#27ae60",fontWeight:800,fontSize:13,wordBreak:"break-all",maxWidth:"90%"}}>{fileName}</div><div style={{color:"#27ae60",fontSize:11}}>{(fileSize/1024/1024).toFixed(2)} MB · Loaded ✅</div><div style={{color:"#555",fontSize:10,marginTop:2}}>Tap to change file</div></>):(<><div style={{fontSize:30}}>📁</div><div style={{color:"#ffb400",fontWeight:700,fontSize:14}}>Tap to select PDF</div><div style={{color:"#555",fontSize:11}}>Works best on desktop/PC</div></>)}<input type="file" accept=".pdf,application/pdf" onChange={handleFileSelect} style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer",zIndex:10}}/></div></div>{fileBase64&&<button onClick={clearFile} style={{width:"100%",marginTop:8,background:"rgba(231,76,60,0.08)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:8,padding:"8px 0",cursor:"pointer",fontWeight:700,fontSize:12}}>🗑 Remove File</button>}</div>)}
               {progress&&<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:8,padding:"10px",fontSize:13,color:"#ffb400",textAlign:"center"}}>⏳ {progress}</div>}
-              <button onClick={upload} disabled={uploading} style={{...btnPrimary,opacity:uploading?0.7:1}}>{uploading?`⏳ ${progress||"Saving…"}`:(uploadMode==="url"?"🔗 Save with URL":"⬆ Upload PDF")}</button>
+              <button onClick={upload} disabled={uploading} style={{...btnPrimary,opacity:uploading?0.7:1}}>{uploading?`⏳ ${progress||"Saving…"}`:"💾 Save & Auto-Migrate to R2 ☁"}</button>
             </div>
           </div>
         )}
-        {tab==="materials"&&(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:460}}><thead><tr style={{background:"rgba(255,180,0,0.04)"}}>{["Title","System","Level","DLs","File","Del"].map(h=><th key={h} style={{padding:"9px 8px",textAlign:"left",color:"#ffb400",fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}</tr></thead><tbody>{mats.slice(0,50).map((m,i)=>(<tr key={m.id} style={{borderTop:"1px solid rgba(255,255,255,0.04)",background:i%2?"rgba(255,255,255,0.01)":"transparent"}}><td style={{padding:"8px",color:"#fff",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</td><td style={{padding:"8px",color:"#888"}}>{m.system}</td><td style={{padding:"8px",color:"#888"}}>{m.level}</td><td style={{padding:"8px",color:"#ffb400",fontWeight:700}}>{m.downloads||0}</td><td style={{padding:"8px"}}>{m.file_url?<a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{color:"#3498db",fontSize:11}}>🔗</a>:<span style={{color:"#444"}}>—</span>}</td><td style={{padding:"8px"}}><button onClick={async()=>{await supabase.from("materials").delete().eq("id",m.id);setMats(p=>p.filter(x=>x.id!==m.id));showToast("Deleted");}} style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11}}>Del</button></td></tr>))}</tbody></table></div>)}
+
+        {tab==="materials"&&(
+          <div>
+            {/* ✅ Migrate All button for existing Drive files */}
+            {mats.some(m=>isDriveUrl(m.file_url))&&(
+              <div style={{background:"rgba(243,156,18,0.08)",border:"1px solid rgba(243,156,18,0.2)",borderRadius:10,padding:"12px",marginBottom:12}}>
+                <div style={{fontSize:12,color:"#f39c12",fontWeight:700,marginBottom:4}}>🔄 {mats.filter(m=>isDriveUrl(m.file_url)).length} files still on Google Drive</div>
+                <div style={{fontSize:11,color:"#666",marginBottom:8}}>Migrate them all to R2 for unlimited downloads</div>
+                <button onClick={async()=>{
+                  const driveMats = mats.filter(m=>isDriveUrl(m.file_url));
+                  for(const mat of driveMats){ await manualMigrate(mat); }
+                }} style={{background:"linear-gradient(135deg,#f39c12,#e67e22)",border:"none",color:"#000",borderRadius:8,padding:"9px 16px",cursor:"pointer",fontWeight:800,fontSize:12}}>
+                  ☁ Migrate All to R2
+                </button>
+              </div>
+            )}
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:460}}>
+                <thead>
+                  <tr style={{background:"rgba(255,180,0,0.04)"}}>
+                    {["Title","Level","Storage","DLs","Del"].map(h=><th key={h} style={{padding:"9px 8px",textAlign:"left",color:"#ffb400",fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {mats.slice(0,50).map((m,i)=>(
+                    <tr key={m.id} style={{borderTop:"1px solid rgba(255,255,255,0.04)",background:i%2?"rgba(255,255,255,0.01)":"transparent"}}>
+                      <td style={{padding:"8px",color:"#fff",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</td>
+                      <td style={{padding:"8px",color:"#888"}}>{m.level}</td>
+                      <td style={{padding:"8px"}}>
+                        {migratingIds.has(m.id)?(
+                          <span style={{fontSize:10,color:"#f39c12",fontWeight:700}}>⏳ Moving…</span>
+                        ):(
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <StorageBadge url={m.file_url}/>
+                            {isDriveUrl(m.file_url)&&(
+                              <button onClick={()=>manualMigrate(m)} style={{background:"rgba(243,156,18,0.1)",border:"1px solid rgba(243,156,18,0.2)",color:"#f39c12",borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:9,fontWeight:700}}>→R2</button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{padding:"8px",color:"#ffb400",fontWeight:700}}>{m.downloads||0}</td>
+                      <td style={{padding:"8px"}}>
+                        <button onClick={async()=>{await supabase.from("materials").delete().eq("id",m.id);setMats(p=>p.filter(x=>x.id!==m.id));showToast("Deleted");}} style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11}}>Del</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         {tab==="analytics"&&<AnalyticsTab/>}
       </div>
     );
@@ -805,7 +909,7 @@ export default function App() {
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}><span style={{fontSize:18}}>👤</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2></div>
         {expired&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>⚠️ Subscription Expired</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>Your {subscription.plan} plan expired. Renew to restore access.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Renew Now</button></div>)}
-        {allUsed&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>You've used all 2 free downloads. Subscribe to continue downloading materials.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 50</button></div>)}
+        {allUsed&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>You've used all 2 free downloads. Subscribe to continue.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 50</button></div>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           {[
             {l:"System",v:profile.system,i:"📘"},{l:"Level",v:profile.level,i:"🎓"},
