@@ -1,3 +1,4 @@
 /sitemap.xml /.netlify/functions/sitemap 200
 /robots.txt /.netlify/functions/robots 200
+/material/* /.netlify/functions/material 200
 /*    /index.html    200
