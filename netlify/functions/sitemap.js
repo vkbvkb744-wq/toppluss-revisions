@@ -9,7 +9,7 @@ const BASE_URL = "https://topplussrevisions.top";
 
 const STATIC_PAGES = [
   { url: "/", priority: "1.0", changefreq: "daily" },
-  { url: "/#browse", priority: "0.9", changefreq: "daily" },
+  { url: "/browse", priority: "0.9", changefreq: "daily" },
 ];
 
 exports.handler = async () => {
@@ -30,7 +30,7 @@ exports.handler = async () => {
       const lastmod = m.updated_at
         ? new Date(m.updated_at).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0];
-      return `\n  <url>\n    <loc>${BASE_URL}/#material-${m.id}-${slug}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
+      return `\n  <url>\n    <loc>${BASE_URL}/material/${m.id}-${slug}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
     }).join("");
 
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${staticEntries}${materialEntries}\n</urlset>`;
