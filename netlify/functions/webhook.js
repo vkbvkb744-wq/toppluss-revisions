@@ -24,14 +24,16 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: "Not complete" };
     }
 
-    // FIX: Convert 254XXXXXXXXX → 07XXXXXXXXX to match profiles table
-    let phone = body.phone_number;
+    // FIX 1: Read phone from account field if phone_number is missing
+    let phone = body.phone_number || body.account;
+
+    // FIX 2: Convert 254XXXXXXXXX → 07XXXXXXXXX to match profiles table
     if (phone && phone.startsWith("254")) {
       phone = "0" + phone.slice(3);
     }
 
-    const amount = parseFloat(body.net_amount || body.amount || 0);
-    const plan = amount >= 200 ? "monthly" : "weekly";
+    const amount = parseFloat(body.net_amount || body.value || body.amount || 0);
+    const plan = amount >= 150 ? "monthly" : "weekly";
     const days = PLAN_DAYS[plan];
     const now = new Date();
     const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
