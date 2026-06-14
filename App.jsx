@@ -309,7 +309,7 @@ export default function App() {
     if(filt.level&&m.level!==filt.level) return false;
     if(filt.subject&&m.subject!==filt.subject) return false;
     if(filt.type&&m.type!==filt.type) return false;
-    if(search&&!m.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if(search){const words=search.toLowerCase().trim().split(/\s+/);const haystack=[m.title,m.subject,m.type,m.description,m.level,m.system].filter(Boolean).join(" ").toLowerCase();if(!words.every(w=>haystack.includes(w))) return false;}
     return true;
   });
 
