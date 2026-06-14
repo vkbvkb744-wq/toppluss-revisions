@@ -6,7 +6,6 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-// ✅ Your Cloudflare Worker URL — update this after deploying Worker
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || "https://toppluss-migrate-r2.YOUR_SUBDOMAIN.workers.dev";
 
 const COLORS = ["#e74c3c","#e67e22","#f39c12","#2ecc71","#1abc9c","#3498db","#9b59b6","#e91e63","#00b894","#0984e3"];
@@ -63,13 +62,9 @@ function getFakeDownloads(id) {
 const toApiPhone = (p) => p.startsWith("07") ? "254"+p.slice(1) : p.startsWith("+254") ? p.slice(1) : p;
 const isValidPhone = (p) => /^07\d{8}$/.test(p);
 
-// ✅ Check if URL is already an R2 URL
 const isR2Url = (url) => url && (url.includes("r2.dev") || url.includes("cloudflarestorage.com"));
-
-// ✅ Check if URL is a Google Drive URL
 const isDriveUrl = (url) => url && (url.includes("drive.google.com") || url.includes("docs.google.com"));
 
-// ✅ Get preview embed URL — R2 uses Google Docs viewer, Drive uses Drive embed
 const getEmbedUrl = (url) => {
   if (!url) return null;
   if (isR2Url(url)) {
@@ -82,7 +77,6 @@ const getEmbedUrl = (url) => {
   return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 };
 
-// ✅ Normalize Google Drive URL for Worker to fetch
 const normalizeDriveUrl = (url) => {
   const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
@@ -148,7 +142,6 @@ function Modal({ children, onClose }) {
   );
 }
 
-// ✅ R2 Storage Badge
 function StorageBadge({ url }) {
   if (!url) return <span style={{fontSize:10,color:"#444"}}>— No file</span>;
   if (isR2Url(url)) return <span style={{fontSize:10,color:"#27ae60",fontWeight:700}}>☁ R2 ✅</span>;
@@ -282,7 +275,6 @@ export default function App() {
     }catch(e){console.error(e);}
   };
 
-  // ✅ Trigger Cloudflare Worker to migrate Drive URL → R2
   const migrateToR2 = async (materialId, driveUrl, fileName) => {
     try {
       const res = await fetch(WORKER_URL, {
@@ -296,7 +288,6 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success && data.r2Url) {
-        // Update local state with new R2 URL
         setMats(prev => prev.map(m =>
           m.id === materialId ? { ...m, file_url: data.r2Url } : m
         ));
@@ -632,7 +623,6 @@ export default function App() {
             <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase"}}>{prevMat.system} · {prevMat.level}</div>
             <div style={{fontSize:14,fontWeight:700,color:"#fff",margin:"2px 0"}}>{prevMat.title}</div>
             <div style={{fontSize:11,color:"#666"}}>{prevMat.subject} · {prevMat.type}</div>
-            {/* ✅ Show storage badge */}
             <div style={{marginTop:3}}><StorageBadge url={prevMat.file_url}/></div>
           </div>
         </div>
@@ -687,7 +677,6 @@ export default function App() {
         setStats({users:users||0,subscribers:subs||0,weekly:weekly||0,monthly:monthly||0});
       };
       loadStats();
-      // ✅ R2 migration stats
       const total = mats.length;
       const migrated = mats.filter(m => isR2Url(m.file_url)).length;
       const pending = mats.filter(m => isDriveUrl(m.file_url)).length;
@@ -711,7 +700,6 @@ export default function App() {
     return(
       <div>
         {topMat&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.2)",borderRadius:12,padding:"12px",marginBottom:14}}><div style={{fontSize:10,color:"#ffb400",fontWeight:700,textTransform:"uppercase",marginBottom:4}}>🏆 Most Downloaded</div><div style={{fontSize:13,color:"#fff",fontWeight:700}}>{topMat.title}</div><div style={{fontSize:11,color:"#888"}}>{topMat.subject} · {topMat.downloads||0} downloads</div></div>)}
-        {/* ✅ R2 Migration Progress Bar */}
         <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:14}}>
           <div style={{fontSize:11,color:"#aaa",fontWeight:700,marginBottom:8,textTransform:"uppercase"}}>☁ R2 Migration Status</div>
           <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,height:10,marginBottom:8,overflow:"hidden"}}>
@@ -731,7 +719,7 @@ export default function App() {
   };
 
   const Admin=()=>{
-    const [tab,setTab]=useState("upload");
+    const [tab,setTab]=useState("materials");
     const savedForm=()=>{try{return JSON.parse(sessionStorage.getItem("adminForm")||"null");}catch{return null;}};
     const [form,setForm]=useState(savedForm()||{title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
     const [selectedSubs,setSelectedSubs]=useState([]);
@@ -739,12 +727,13 @@ export default function App() {
     const [uploading,setUploading]=useState(false);
     const [progress,setProgress]=useState("");
     const [migratingIds,setMigratingIds]=useState(new Set());
+    const [migrateAllRunning,setMigrateAllRunning]=useState(false);
+    const [migrateProgress,setMigrateProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
     const aSubs=["All Subjects",...(SUBS_CBC[form.level]||SUBS_844[form.level]||[])];
     useEffect(()=>{sessionStorage.setItem("adminForm",JSON.stringify(form));},[form]);
     const toggleSub=(s)=>{if(s==="All Subjects"){setSelectedSubs(p=>p.length===aSubs.length?[]:aSubs);return;}setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);};
 
-    // ✅ Save then migrate to R2 automatically
     const upload=async()=>{
       if(!form.title){showToast("Fill Title","err");return;}
       if(selectedSubs.length===0){showToast("Select at least one Subject","err");return;}
@@ -762,7 +751,7 @@ export default function App() {
             title:form.title,description:form.description,
             system:form.system,level:form.level,
             subject:sub,type:form.type,
-            file_url:url, // temporary Drive URL
+            file_url:url,
             downloads:0
           }]).select();
           if(error) throw new Error(error.message);
@@ -773,17 +762,12 @@ export default function App() {
         sessionStorage.removeItem("adminForm");setPasteUrl("");setSelectedSubs([]);
         await loadMats();
         setUploading(false);setProgress("");
-
-        // ✅ Migrate each saved material to R2 in background
         for(const id of savedIds){
           setMigratingIds(prev=>new Set([...prev,id]));
           const result = await migrateToR2(id, url, `${form.title.replace(/\s+/g,"_")}.pdf`);
           setMigratingIds(prev=>{const s=new Set(prev);s.delete(id);return s;});
-          if(result.success){
-            showToast(`☁ Migrated to R2 successfully!`);
-          } else {
-            showToast(`⚠️ R2 migration failed: ${result.error}. File still available via Drive.`,"err");
-          }
+          if(result.success) showToast(`☁ Migrated to R2 successfully!`);
+          else showToast(`⚠️ R2 migration failed: ${result.error}. File still available via Drive.`,"err");
         }
       }catch(err){
         showToast("Failed: "+err.message,"err");
@@ -791,27 +775,104 @@ export default function App() {
       }
     };
 
-    // ✅ Manually migrate a single material to R2
     const manualMigrate = async (mat) => {
       if(!isDriveUrl(mat.file_url)){showToast("Already on R2 or not a Drive URL","err");return;}
       setMigratingIds(prev=>new Set([...prev,mat.id]));
-      showToast("⏳ Migrating to R2…","info");
       const result = await migrateToR2(mat.id, mat.file_url, `${mat.title.replace(/\s+/g,"_")}.pdf`);
       setMigratingIds(prev=>{const s=new Set(prev);s.delete(mat.id);return s;});
       if(result.success) showToast("☁ Moved to R2! ✅");
       else showToast("Migration failed: "+result.error,"err");
     };
 
+    const migrateAll = async () => {
+      const driveMats = mats.filter(m=>isDriveUrl(m.file_url));
+      if(driveMats.length===0){showToast("No Drive files to migrate","err");return;}
+      setMigrateAllRunning(true);
+      for(let i=0;i<driveMats.length;i++){
+        const mat=driveMats[i];
+        setMigrateProgress(`Migrating ${i+1}/${driveMats.length}: ${mat.title.slice(0,30)}…`);
+        await manualMigrate(mat);
+      }
+      setMigrateAllRunning(false);
+      setMigrateProgress("");
+      showToast("✅ All files migrated to R2!");
+    };
+
+    const driveCount = mats.filter(m=>isDriveUrl(m.file_url)).length;
+    const r2Count = mats.filter(m=>isR2Url(m.file_url)).length;
+
     return(
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><span style={{fontSize:18}}>🛠</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Admin Dashboard</h2></div>
         <div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto"}}>
-          {["upload","materials","analytics"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{background:tab===t?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.04)",border:`1px solid ${tab===t?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,color:tab===t?"#ffb400":"#888",padding:"8px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>{t==="upload"?"⬆ Upload":t==="materials"?"📋 Materials":"📊 Analytics"}</button>))}
+          {["materials","upload","analytics"].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{background:tab===t?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.04)",border:`1px solid ${tab===t?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,color:tab===t?"#ffb400":"#888",padding:"8px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>{t==="upload"?"⬆ Upload":t==="materials"?"📋 Materials":"📊 Analytics"}</button>))}
         </div>
+
+        {tab==="materials"&&(
+          <div>
+            {/* Migration summary banner */}
+            <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:12}}>
+              <div style={{fontSize:11,color:"#aaa",fontWeight:700,marginBottom:8,textTransform:"uppercase"}}>☁ Storage Status</div>
+              <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,height:8,marginBottom:8,overflow:"hidden"}}>
+                <div style={{height:"100%",background:"linear-gradient(90deg,#27ae60,#2ecc71)",width:`${mats.length>0?(r2Count/mats.length)*100:0}%`,borderRadius:8,transition:"width 0.5s"}}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:10}}>
+                <span style={{color:"#27ae60",fontWeight:700}}>☁ {r2Count} on R2</span>
+                <span style={{color:"#f39c12",fontWeight:700}}>🔄 {driveCount} on Drive</span>
+                <span style={{color:"#555"}}>{mats.length} total</span>
+              </div>
+              {driveCount>0&&(
+                <button
+                  onClick={migrateAll}
+                  disabled={migrateAllRunning}
+                  style={{background:"linear-gradient(135deg,#f39c12,#e67e22)",border:"none",color:"#000",borderRadius:8,padding:"10px 0",cursor:migrateAllRunning?"not-allowed":"pointer",fontWeight:800,fontSize:13,width:"100%",opacity:migrateAllRunning?0.7:1}}
+                >
+                  {migrateAllRunning?`⏳ ${migrateProgress||"Migrating…"}`:`☁ Migrate All ${driveCount} Drive Files → R2`}
+                </button>
+              )}
+              {driveCount===0&&r2Count>0&&(
+                <div style={{textAlign:"center",fontSize:12,color:"#27ae60",fontWeight:700}}>✅ All files are on R2!</div>
+              )}
+            </div>
+
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:400}}>
+                <thead>
+                  <tr style={{background:"rgba(255,180,0,0.04)"}}>
+                    {["Title","Level","Storage","DLs","Del"].map(h=><th key={h} style={{padding:"9px 8px",textAlign:"left",color:"#ffb400",fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {mats.map((m,i)=>(
+                    <tr key={m.id} style={{borderTop:"1px solid rgba(255,255,255,0.04)",background:i%2?"rgba(255,255,255,0.01)":"transparent"}}>
+                      <td style={{padding:"8px",color:"#fff",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</td>
+                      <td style={{padding:"8px",color:"#888",whiteSpace:"nowrap"}}>{m.level}</td>
+                      <td style={{padding:"8px"}}>
+                        {migratingIds.has(m.id)?(
+                          <span style={{fontSize:10,color:"#f39c12",fontWeight:700}}>⏳…</span>
+                        ):(
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <StorageBadge url={m.file_url}/>
+                            {isDriveUrl(m.file_url)&&(
+                              <button onClick={()=>manualMigrate(m)} style={{background:"rgba(243,156,18,0.15)",border:"1px solid rgba(243,156,18,0.3)",color:"#f39c12",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:9,fontWeight:700,whiteSpace:"nowrap"}}>→R2</button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{padding:"8px",color:"#ffb400",fontWeight:700}}>{m.downloads||0}</td>
+                      <td style={{padding:"8px"}}>
+                        <button onClick={async()=>{await supabase.from("materials").delete().eq("id",m.id);setMats(p=>p.filter(x=>x.id!==m.id));showToast("Deleted");}} style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11}}>Del</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {tab==="upload"&&(
           <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:16}}>
-            {/* ✅ R2 info banner */}
             <div style={{background:"rgba(39,174,96,0.08)",border:"1px solid rgba(39,174,96,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:14,display:"flex",gap:8,alignItems:"center"}}>
               <span style={{fontSize:18}}>☁</span>
               <div>
@@ -836,7 +897,7 @@ export default function App() {
               </div>
               <div>
                 <label style={lbl}>📎 Paste Google Drive Link *</label>
-                <textarea value={pasteUrl} onChange={e=>setPasteUrl(e.target.value)} placeholder={"Paste your Google Drive share link:\nhttps://drive.google.com/file/d/XXXX/view\n\nFile will be automatically moved to R2 ☁"} style={{...inp,minHeight:90,resize:"vertical",lineHeight:1.6,fontSize:12}}/>
+                <textarea value={pasteUrl} onChange={e=>setPasteUrl(e.target.value)} placeholder={"Paste your Google Drive share link:\nhttps://drive.google.com/file/d/XXXX/view"} style={{...inp,minHeight:90,resize:"vertical",lineHeight:1.6,fontSize:12}}/>
                 <div style={{marginTop:6,fontSize:11,color:"#555"}}>📌 Open PDF in Google Drive → tap ⋮ → Share → Copy link → paste above</div>
               </div>
               {progress&&<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:8,padding:"10px",fontSize:13,color:"#ffb400",textAlign:"center"}}>⏳ {progress}</div>}
@@ -845,56 +906,6 @@ export default function App() {
           </div>
         )}
 
-        {tab==="materials"&&(
-          <div>
-            {/* ✅ Migrate All button for existing Drive files */}
-            {mats.some(m=>isDriveUrl(m.file_url))&&(
-              <div style={{background:"rgba(243,156,18,0.08)",border:"1px solid rgba(243,156,18,0.2)",borderRadius:10,padding:"12px",marginBottom:12}}>
-                <div style={{fontSize:12,color:"#f39c12",fontWeight:700,marginBottom:4}}>🔄 {mats.filter(m=>isDriveUrl(m.file_url)).length} files still on Google Drive</div>
-                <div style={{fontSize:11,color:"#666",marginBottom:8}}>Migrate them all to R2 for unlimited downloads</div>
-                <button onClick={async()=>{
-                  const driveMats = mats.filter(m=>isDriveUrl(m.file_url));
-                  for(const mat of driveMats){ await manualMigrate(mat); }
-                }} style={{background:"linear-gradient(135deg,#f39c12,#e67e22)",border:"none",color:"#000",borderRadius:8,padding:"9px 16px",cursor:"pointer",fontWeight:800,fontSize:12}}>
-                  ☁ Migrate All to R2
-                </button>
-              </div>
-            )}
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:460}}>
-                <thead>
-                  <tr style={{background:"rgba(255,180,0,0.04)"}}>
-                    {["Title","Level","Storage","DLs","Del"].map(h=><th key={h} style={{padding:"9px 8px",textAlign:"left",color:"#ffb400",fontWeight:700,fontSize:10,textTransform:"uppercase"}}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {mats.slice(0,50).map((m,i)=>(
-                    <tr key={m.id} style={{borderTop:"1px solid rgba(255,255,255,0.04)",background:i%2?"rgba(255,255,255,0.01)":"transparent"}}>
-                      <td style={{padding:"8px",color:"#fff",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</td>
-                      <td style={{padding:"8px",color:"#888"}}>{m.level}</td>
-                      <td style={{padding:"8px"}}>
-                        {migratingIds.has(m.id)?(
-                          <span style={{fontSize:10,color:"#f39c12",fontWeight:700}}>⏳ Moving…</span>
-                        ):(
-                          <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <StorageBadge url={m.file_url}/>
-                            {isDriveUrl(m.file_url)&&(
-                              <button onClick={()=>manualMigrate(m)} style={{background:"rgba(243,156,18,0.1)",border:"1px solid rgba(243,156,18,0.2)",color:"#f39c12",borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:9,fontWeight:700}}>→R2</button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{padding:"8px",color:"#ffb400",fontWeight:700}}>{m.downloads||0}</td>
-                      <td style={{padding:"8px"}}>
-                        <button onClick={async()=>{await supabase.from("materials").delete().eq("id",m.id);setMats(p=>p.filter(x=>x.id!==m.id));showToast("Deleted");}} style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11}}>Del</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
         {tab==="analytics"&&<AnalyticsTab/>}
       </div>
     );
