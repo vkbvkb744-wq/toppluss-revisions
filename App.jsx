@@ -218,6 +218,39 @@ export default function App() {
   };
 
   useEffect(()=>{
+    let title="Toppluss Revisions — Kenya's #1 Revision Platform";
+    let desc="Download KCSE & CBC notes, past papers and marking schemes. KSh 50/week unlimited access via M-Pesa.";
+    if(page==="browse"){
+      title="Browse Revision Materials | Toppluss Revisions";
+      desc="Browse thousands of CBC and 8-4-4 notes, past papers, marking schemes for Kenyan students.";
+    } else if(page==="dash"){
+      title="My Dashboard | Toppluss Revisions";
+      desc="Manage your Toppluss subscription and downloads.";
+    } else if(page==="admin"){
+      title="Admin | Toppluss Revisions";
+      desc="Admin dashboard for Toppluss Revisions.";
+    } else if(modal==="preview"&&prevMat){
+      title=`${prevMat.title} — ${prevMat.subject} ${prevMat.level} | Toppluss Revisions`;
+      desc=`Download ${prevMat.title} for ${prevMat.level} ${prevMat.subject}. ${prevMat.description||"Kenya CBC & 8-4-4 revision material."}`;
+    }
+    document.title=title;
+    let m=document.querySelector('meta[name="description"]');
+    if(!m){m=document.createElement("meta");m.setAttribute("name","description");document.head.appendChild(m);}
+    m.setAttribute("content",desc);
+    // Open Graph tags for WhatsApp/Facebook sharing
+    const setOg=(prop,val)=>{
+      let og=document.querySelector(`meta[property="${prop}"]`);
+      if(!og){og=document.createElement("meta");og.setAttribute("property",prop);document.head.appendChild(og);}
+      og.setAttribute("content",val);
+    };
+    setOg("og:title",title);
+    setOg("og:description",desc);
+    setOg("og:url",window.location.href);
+    setOg("og:type","website");
+    setOg("og:site_name","Toppluss Revisions");
+  },[page,modal,prevMat]);
+
+  useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{
       if(session?.user){setUser(session.user);loadProfile(session.user.id);checkSub(session.user.id);}
     });
