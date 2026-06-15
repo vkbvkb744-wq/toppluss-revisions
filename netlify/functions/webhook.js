@@ -33,7 +33,7 @@ exports.handler = async (event) => {
     }
 
     const amount = parseFloat(body.net_amount || body.value || body.amount || 0);
-    const plan = amount >= 200 ? "monthly" : "weekly";
+    const plan = amount >= 150 ? "monthly" : "weekly";
     const days = PLAN_DAYS[plan];
     const now = new Date();
     const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
