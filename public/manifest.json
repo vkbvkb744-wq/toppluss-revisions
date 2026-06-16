@@ -1,0 +1,22 @@
+{
+  "name": "Toppluss Revisions",
+  "short_name": "Toppluss",
+  "id": "top.topplussrevisions.app",
+  "description": "Download KCSE and CBC revision materials in Kenya. Notes, past papers, marking schemes for Form 1-4 and Grade 1-12. Subscribe from KSh 50/week or KSh 200/month via M-Pesa.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a1628",
+  "theme_color": "#f0a500",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
