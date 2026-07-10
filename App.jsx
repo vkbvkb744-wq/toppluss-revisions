@@ -219,7 +219,7 @@ export default function App() {
 
   useEffect(()=>{
     let title="Toppluss Revisions — Kenya's #1 Revision Platform";
-    let desc="Download KCSE & CBC notes, past papers and marking schemes. KSh 50/week unlimited access via M-Pesa.";
+    let desc="Download KCSE & CBC notes, past papers and marking schemes. KSh 250/month unlimited access via M-Pesa.";
     if(page==="browse"){
       title="Browse Revision Materials | Toppluss Revisions";
       desc="Browse thousands of CBC and 8-4-4 notes, past papers, marking schemes for Kenyan students.";
@@ -337,7 +337,7 @@ export default function App() {
   const userName=profile?.full_name||user?.email?.split("@")[0]||"Student";
 
   const filtMats=mats.filter(m=>{
-    if(profile?.system&&!isAdmin&&m.system!==profile.system) return false;
+    if(profile?.system&&!isAdmin&&profile.role!=="teacher"&&m.system!==profile.system) return false;
     if(filt.system&&m.system!==filt.system) return false;
     if(filt.level&&m.level!==filt.level) return false;
     if(filt.subject&&m.subject!==filt.subject) return false;
@@ -366,20 +366,8 @@ export default function App() {
   const handleDL=async(mat)=>{
     if(isAdmin||isSubscribed){doDownload(mat);return;}
     if(!user){setModal("gate");return;}
-    const{data:freshProfile}=await supabase.from("profiles").select("*").eq("id",user.id).single();
-    if(freshProfile) setProfile(freshProfile);
-    const used=freshProfile?.free_downloads_used??0;
-    if(used<2){
-      const newUsed=used+1;
-      await supabase.from("profiles").update({free_downloads_used:newUsed}).eq("id",user.id);
-      setProfile(p=>({...p,free_downloads_used:newUsed}));
-      doDownload(mat);
-      if(newUsed>=2){showToast("⚠️ You've used all 2 free downloads! Subscribe to continue downloading.","err");}
-      else{showToast(`✅ Free download used. ${2-newUsed} free download(s) remaining.`);}
-    } else {
-      showToast("🔒 You've used all your free downloads. Please subscribe to continue.","err");
-      setModal("subscribe");
-    }
+    showToast("🔒 Subscribe to download materials.","err");
+    setModal("subscribe");
   };
 
   const logout=async()=>{
@@ -417,7 +405,7 @@ export default function App() {
         <div style={{flex:1,minWidth:8}}/>
         {user?(
           <button onClick={()=>setPage("dash")} style={{background:"rgba(255,180,0,0.1)",border:"1px solid rgba(255,180,0,0.25)",color:"#ffb400",padding:"5px 12px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0,whiteSpace:"nowrap"}}>
-            👤 {userName.split(" ")[0]}{isSubscribed&&<span style={{marginLeft:6,fontSize:9,background:"#27ae60",color:"#fff",borderRadius:6,padding:"1px 5px"}}>{subscription.plan}</span>}
+            👤 {userName.split(" ")[0]}{profile?.role==="teacher"&&<span style={{marginLeft:6,fontSize:9,background:"rgba(255,180,0,0.2)",color:"#ffb400",borderRadius:6,padding:"1px 5px"}}>Teacher</span>}{isSubscribed&&<span style={{marginLeft:6,fontSize:9,background:"#27ae60",color:"#fff",borderRadius:6,padding:"1px 5px"}}>{subscription.plan}</span>}
           </button>
         ):(
           <div style={{display:"flex",gap:8,flexShrink:0}}>
@@ -494,44 +482,65 @@ export default function App() {
   };
 
   const RegisterM=()=>{
-    const [f,setF]=useState({name:"",email:"",phone:"",password:"",system:"CBC",level:"Grade 1"});
+    const [f,setF]=useState({name:"",email:"",phone:"",password:"",accountType:"student",system:"CBC",level:"Grade 1"});
     const [ld,setLd]=useState(false);
     const rLvls=f.system==="CBC"?LEVELS_CBC:LEVELS_844;
+    const isTeacher=f.accountType==="teacher";
     const go=async()=>{
       if(!f.name||!f.email||!f.phone||!f.password){showToast("Fill all fields","err");return;}
       if(!isValidPhone(f.phone)){showToast("Phone must start with 07","err");return;}
       if(f.password.length<6){showToast("Password min 6 characters","err");return;}
       setLd(true);
-      const{error}=await supabase.auth.signUp({email:f.email,password:f.password,options:{data:{full_name:f.name,phone:f.phone,system:f.system,level:f.level}}});
+      const meta=isTeacher
+        ?{full_name:f.name,phone:f.phone,role:"teacher",system:"Teacher",level:"N/A"}
+        :{full_name:f.name,phone:f.phone,system:f.system,level:f.level};
+      const{error}=await supabase.auth.signUp({email:f.email,password:f.password,options:{data:meta}});
       if(error) showToast("Registration failed: "+error.message,"err");
-      else{showToast("🎉 Registered! You have 2 free downloads.");setModal(null);setPage("dash");}
+      else{showToast(isTeacher?"🎉 Welcome, Teacher! Registration complete.":"🎉 Registered! Subscribe to start downloading.");setModal(null);setPage("dash");}
       setLd(false);
     };
     return(
       <div>
         <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Create Account</h2>
-        <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>2 free downloads included — no card needed</p>
+        <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>Register free, then subscribe to download materials</p>
         <div style={{display:"grid",gap:11}}>
+          <div>
+            <label style={lbl}>I am a…</label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {[{k:"student",l:"🎓 Student"},{k:"teacher",l:"👩‍🏫 Teacher"}].map(o=>(
+                <div key={o.k} onClick={()=>setF(p=>({...p,accountType:o.k}))} style={{border:`2px solid ${f.accountType===o.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"11px 0",textAlign:"center",cursor:"pointer",background:f.accountType===o.k?"rgba(255,180,0,0.06)":"transparent",fontWeight:700,fontSize:13,color:f.accountType===o.k?"#ffb400":"#ccc"}}>{o.l}</div>
+              ))}
+            </div>
+          </div>
           <div><label style={lbl}>Full Name</label><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} style={inp} placeholder="Jane Mwangi"/></div>
           <div><label style={lbl}>Email</label><input type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} style={inp} placeholder="jane@example.com"/></div>
           <div><label style={lbl}>Phone (07…)</label><input value={f.phone} onChange={e=>setF(p=>({...p,phone:e.target.value}))} style={inp} placeholder="0712345678" maxLength={10}/></div>
           <div><label style={lbl}>Password</label><input type="password" value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={inp} placeholder="Min 6 characters"/></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <div><label style={lbl}>System</label><select value={f.system} onChange={e=>setF(p=>({...p,system:e.target.value,level:e.target.value==="CBC"?"Grade 1":"Form 1"}))} style={{...inp,cursor:"pointer"}}><option>CBC</option><option>8-4-4</option></select></div>
-            <div><label style={lbl}>Level</label><select value={f.level} onChange={e=>setF(p=>({...p,level:e.target.value}))} style={{...inp,cursor:"pointer"}}>{rLvls.map(l=><option key={l}>{l}</option>)}</select></div>
-          </div>
-          <button onClick={go} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1,marginTop:4}}>{ld?"Creating account…":"Register & Get 2 Free Downloads"}</button>
+          {!isTeacher&&(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div><label style={lbl}>System</label><select value={f.system} onChange={e=>setF(p=>({...p,system:e.target.value,level:e.target.value==="CBC"?"Grade 1":"Form 1"}))} style={{...inp,cursor:"pointer"}}><option>CBC</option><option>8-4-4</option></select></div>
+              <div><label style={lbl}>Level</label><select value={f.level} onChange={e=>setF(p=>({...p,level:e.target.value}))} style={{...inp,cursor:"pointer"}}>{rLvls.map(l=><option key={l}>{l}</option>)}</select></div>
+            </div>
+          )}
+          <button onClick={go} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1,marginTop:4}}>{ld?"Creating account…":"Register"}</button>
           <p style={{textAlign:"center",fontSize:12,color:"#666",margin:0}}>Have account? <button onClick={()=>setModal("login")} style={{background:"none",border:"none",color:"#ffb400",cursor:"pointer",fontWeight:700,fontSize:12}}>Login</button></p>
         </div>
       </div>
     );
   };
 
+  const PLANS=[
+    {k:"monthly",l:"Monthly",p:"KSh 250",amount:250,d:"30 days"},
+    {k:"sixmonth",l:"6 Months",p:"KSh 1,500",amount:1500,d:"180 days"},
+    {k:"annual",l:"12 Months",p:"KSh 3,000",amount:3000,d:"365 days",hot:true},
+  ];
+
   const SubscribeM=()=>{
     const [plan,setPlan]=useState("monthly");
     const [phone,setPhone]=useState(profile?.phone||"");
     const [ld,setLd]=useState(false);
     const [step,setStep]=useState("choose");
+    const selectedPlan=PLANS.find(pl=>pl.k===plan);
 
     const pay=async()=>{
       if(!isValidPhone(phone)){showToast("Enter valid 07 number","err");return;}
@@ -541,7 +550,7 @@ export default function App() {
         const res=await fetch("/.netlify/functions/mpesa",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({phone:toApiPhone(phone),amount:plan==="weekly"?50:200,plan,userId:user.id})
+          body:JSON.stringify({phone:toApiPhone(phone),amount:selectedPlan.amount,plan,userId:user.id})
         });
         const data=await res.json();
         if(!data.success&&!res.ok){
@@ -586,7 +595,7 @@ export default function App() {
           <div style={{textAlign:"center",padding:"20px 0"}}>
             <div style={{fontSize:52,marginBottom:12}}>🎉</div>
             <h2 style={{color:"#ffb400",fontFamily:"'Playfair Display',serif",margin:"0 0 8px"}}>Subscribed!</h2>
-            <p style={{color:"#888",marginBottom:20,fontSize:14}}>Your {plan} plan is now active!</p>
+            <p style={{color:"#888",marginBottom:20,fontSize:14}}>Your {selectedPlan.l} plan is now active!</p>
             <button onClick={()=>{setModal(null);setPage("browse");}} style={btnPrimary}>Browse Materials</button>
           </div>
         ):step==="timeout"?(
@@ -615,17 +624,20 @@ export default function App() {
           <div>
             <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Subscribe via M-Pesa</h2>
             <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>Instant activation after payment</p>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-              {[{k:"weekly",l:"Weekly",p:"KSh 50",d:"7 days"},{k:"monthly",l:"Monthly",p:"KSh 200",d:"30 days"}].map(pl=>(
-                <div key={pl.k} onClick={()=>setPlan(pl.k)} style={{border:`2px solid ${plan===pl.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"13px 10px",cursor:"pointer",textAlign:"center",background:plan===pl.k?"rgba(255,180,0,0.06)":"transparent"}}>
-                  <div style={{fontWeight:700,color:"#fff",marginBottom:2,fontSize:13}}>{pl.l}</div>
+            <div style={{display:"grid",gap:10,marginBottom:14}}>
+              {PLANS.map(pl=>(
+                <div key={pl.k} onClick={()=>setPlan(pl.k)} style={{border:`2px solid ${plan===pl.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"13px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",background:plan===pl.k?"rgba(255,180,0,0.06)":"transparent",position:"relative"}}>
+                  {pl.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}
+                  <div>
+                    <div style={{fontWeight:700,color:"#fff",fontSize:13}}>{pl.l}</div>
+                    <div style={{fontSize:10,color:"#666",marginTop:2}}>{pl.d}</div>
+                  </div>
                   <div style={{fontSize:20,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{pl.p}</div>
-                  <div style={{fontSize:10,color:"#666",marginTop:2}}>{pl.d}</div>
                 </div>
               ))}
             </div>
             <div style={{marginBottom:14}}><label style={lbl}>M-Pesa Phone (07…)</label><input value={phone} onChange={e=>setPhone(e.target.value)} style={inp} placeholder="0712345678" maxLength={10}/></div>
-            <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${plan==="weekly"?"KSh 50":"KSh 200"} via M-Pesa`}</button>
+            <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${selectedPlan.p} via M-Pesa`}</button>
           </div>
         )}
       </div>
@@ -635,10 +647,10 @@ export default function App() {
   const GateM=()=>(
     <div style={{textAlign:"center",padding:"10px 0"}}>
       <div style={{fontSize:48,marginBottom:12}}>🔒</div>
-      <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 8px",fontSize:20}}>Register to Download</h2>
-      <p style={{color:"#888",fontSize:13,margin:"0 0 20px",lineHeight:1.65}}>Create a free account and get <strong style={{color:"#ffb400"}}>2 free downloads</strong> instantly.</p>
+      <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 8px",fontSize:20}}>Register to Continue</h2>
+      <p style={{color:"#888",fontSize:13,margin:"0 0 20px",lineHeight:1.65}}>Create a free account, then subscribe from <strong style={{color:"#ffb400"}}>KSh 250/month</strong> to download materials.</p>
       <div style={{display:"grid",gap:10}}>
-        <button onClick={()=>setModal("register")} style={btnPrimary}>Register Free — Get 2 Downloads</button>
+        <button onClick={()=>setModal("register")} style={btnPrimary}>Register Free</button>
         <button onClick={()=>setModal("login")} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"12px 0",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:14,width:"100%"}}>Already have account? Login</button>
       </div>
     </div>
@@ -682,15 +694,15 @@ export default function App() {
             </div>
             <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%) rotate(-28deg)",opacity:0.08,fontSize:13,fontWeight:900,color:"#fff",whiteSpace:"nowrap",pointerEvents:"none",letterSpacing:1}}>www.topplussrevisions.top</div>
             <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(transparent,rgba(13,25,41,0.98))",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:8}}>
-              <span style={{fontSize:10,color:"#555",fontStyle:"italic"}}>{user?"Subscribe to preview full document":"Register free to get 2 free downloads"}</span>
+              <span style={{fontSize:10,color:"#555",fontStyle:"italic"}}>{user?"Subscribe to preview full document":"Register free, then subscribe to unlock"}</span>
             </div>
           </div>
         )}
         {user&&!isSubscribed&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}><span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>🔐 Subscribe to preview & download all documents</span></div>)}
-        {!user&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}><span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free — get 2 free downloads</span></div>)}
+        {!user&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}><span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free, then subscribe from KSh 250/month</span></div>)}
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>setModal(null)} style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",color:"#aaa",padding:"11px 0",borderRadius:9,cursor:"pointer",fontWeight:600,fontSize:13}}>Close</button>
-          {!user?(<button onClick={()=>setModal("register")} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>Register to Download</button>
+          {!user?(<button onClick={()=>setModal("register")} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>Register to Continue</button>
           ):!isSubscribed?(<button onClick={()=>setModal("subscribe")} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>💳 Subscribe to Download</button>
           ):(<button onClick={()=>{setModal(null);handleDL(prevMat);}} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>⬇ Download Full</button>)}
         </div>
@@ -699,15 +711,16 @@ export default function App() {
   };
 
   const AnalyticsTab=()=>{
-    const [stats,setStats]=useState({users:0,subscribers:0,weekly:0,monthly:0});
+    const [stats,setStats]=useState({users:0,subscribers:0,monthly:0,sixmonth:0,annual:0});
     const [r2Stats,setR2Stats]=useState({total:0,migrated:0,pending:0});
     useEffect(()=>{
       const loadStats=async()=>{
         const{count:users}=await supabase.from("profiles").select("*",{count:"exact",head:true});
         const{count:subs}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("active",true);
-        const{count:weekly}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("plan","weekly").eq("active",true);
         const{count:monthly}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("plan","monthly").eq("active",true);
-        setStats({users:users||0,subscribers:subs||0,weekly:weekly||0,monthly:monthly||0});
+        const{count:sixmonth}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("plan","sixmonth").eq("active",true);
+        const{count:annual}=await supabase.from("subscriptions").select("*",{count:"exact",head:true}).eq("plan","annual").eq("active",true);
+        setStats({users:users||0,subscribers:subs||0,monthly:monthly||0,sixmonth:sixmonth||0,annual:annual||0});
       };
       loadStats();
       const total = mats.length;
@@ -716,11 +729,12 @@ export default function App() {
       setR2Stats({ total, migrated, pending });
     },[]);
     const topMat=[...mats].sort((a,b)=>b.downloads-a.downloads)[0];
-    const revenue=(stats.weekly*50)+(stats.monthly*200);
+    const revenue=(stats.monthly*250)+(stats.sixmonth*1500)+(stats.annual*3000);
     const allStats=[
       {l:"Total Materials",v:mats.length,i:"📄"},{l:"Total Downloads",v:mats.reduce((s,m)=>s+(m.downloads||0),0).toLocaleString(),i:"⬇"},
       {l:"Registered Users",v:stats.users,i:"👤"},{l:"Active Subscribers",v:stats.subscribers,i:"💳",c:"#27ae60"},
-      {l:"Weekly Plans",v:stats.weekly,i:"📅"},{l:"Monthly Plans",v:stats.monthly,i:"📆"},
+      {l:"Monthly Plans",v:stats.monthly,i:"📆"},{l:"6-Month Plans",v:stats.sixmonth,i:"🗓️"},
+      {l:"Annual Plans",v:stats.annual,i:"📅"},
       {l:"Est. Revenue",v:`KSh ${revenue.toLocaleString()}`,i:"💰",c:"#ffb400"},
       {l:"CBC Materials",v:mats.filter(m=>m.system==="CBC").length,i:"📘"},{l:"8-4-4 Materials",v:mats.filter(m=>m.system==="8-4-4").length,i:"📗"},
       {l:"On R2 ✅",v:r2Stats.migrated,i:"☁",c:"#27ae60"},{l:"On Drive ⏳",v:r2Stats.pending,i:"🔄",c:"#f39c12"},
@@ -947,26 +961,31 @@ export default function App() {
   const Dash=()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired=subscription?.reason==="expired";
-    const freeLeft=Math.max(0,2-(profile?.free_downloads_used||0));
-    const allUsed=freeLeft===0&&!isSubscribed&&!expired;
+    const isTeacherAcct=profile.role==="teacher";
     return(
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}><span style={{fontSize:18}}>👤</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2></div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}><span style={{fontSize:18}}>{isTeacherAcct?"👩‍🏫":"👤"}</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>{isTeacherAcct&&<span style={{fontSize:9,background:"rgba(255,180,0,0.15)",color:"#ffb400",borderRadius:6,padding:"2px 8px",fontWeight:700,textTransform:"uppercase"}}>Teacher</span>}</div>
         {expired&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>⚠️ Subscription Expired</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>Your {subscription.plan} plan expired. Renew to restore access.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Renew Now</button></div>)}
-        {allUsed&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 Free Downloads Exhausted</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>You've used all 2 free downloads. Subscribe to continue.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 50</button></div>)}
+        {!isSubscribed&&!expired&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 No Active Subscription</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>Subscribe to preview and download materials.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 250/month</button></div>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-          {[
+          {(isTeacherAcct?[
+            {l:"Account Type",v:"Teacher",i:"👩‍🏫"},
+            {l:"Phone",v:profile.phone||"—",i:"📱"},
+            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":"Not Subscribed",i:"💳",c:isSubscribed?"#27ae60":"#e74c3c"},
+            {l:"Days Left",v:isSubscribed?`${subscription.daysLeft} days`:"—",i:"📅"},
+          ]:[
             {l:"System",v:profile.system,i:"📘"},{l:"Level",v:profile.level,i:"🎓"},
             {l:"Phone",v:profile.phone||"—",i:"📱"},
-            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":allUsed?"Blocked":"Free",i:"💳",c:isSubscribed?"#27ae60":expired||allUsed?"#e74c3c":"#ffb400"},
-            {l:"Free Left",v:isSubscribed?"Unlimited":`${freeLeft} left`,i:"📥",c:freeLeft===0&&!isSubscribed?"#e74c3c":undefined},
+            {l:"Status",v:isSubscribed?`${subscription.plan} Plan`:expired?"Expired":"Not Subscribed",i:"💳",c:isSubscribed?"#27ae60":"#e74c3c"},
             {l:"Days Left",v:isSubscribed?`${subscription.daysLeft} days`:"—",i:"📅"},
-          ].map(c=>(<div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"12px"}}><div style={{fontSize:16,marginBottom:5}}>{c.i}</div><div style={{fontSize:10,color:"#666",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div><div style={{fontSize:12,fontWeight:700,color:c.c||"#fff"}}>{c.v}</div></div>))}
+          ]).map(c=>(<div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"12px"}}><div style={{fontSize:16,marginBottom:5}}>{c.i}</div><div style={{fontSize:10,color:"#666",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div><div style={{fontSize:12,fontWeight:700,color:c.c||"#fff"}}>{c.v}</div></div>))}
         </div>
-        {!isSubscribed&&!expired&&!allUsed&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div><p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>You have {freeLeft} free download{freeLeft!==1?"s":""} left. Subscribe for unlimited access.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button></div>)}
+        {!isSubscribed&&!expired&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div><p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>Subscribe for unlimited downloads — from KSh 250/month.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button></div>)}
         <button onClick={logout} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",color:"#666",borderRadius:10,padding:"11px 0",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:16}}>🚪 Logout</button>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><span style={{fontSize:15}}>📚</span><h3 style={{margin:0,fontSize:15,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3></div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>{mats.filter(m=>m.level===profile.level).slice(0,6).map(m=><Card key={m.id} {...cardProps(m)}/>)}</div>
+        {!isTeacherAcct&&(<>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><span style={{fontSize:15}}>📚</span><h3 style={{margin:0,fontSize:15,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3></div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>{mats.filter(m=>m.level===profile.level).slice(0,6).map(m=><Card key={m.id} {...cardProps(m)}/>)}</div>
+        </>)}
       </div>
     );
   };
@@ -991,7 +1010,7 @@ export default function App() {
                 {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}}>Register Free</button>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,maxWidth:320,margin:"0 auto"}}>
-                {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["2 Free","Downloads"],["KSh 50","From /week"]].map(([n,l])=>(<div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}><div style={{fontSize:17,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div><div style={{fontSize:10,color:"#555",marginTop:3}}>{l}</div></div>))}
+                {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["3 Plans","Flexible"],["KSh 250","From /month"]].map(([n,l])=>(<div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}><div style={{fontSize:17,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div><div style={{fontSize:10,color:"#555",marginTop:3}}>{l}</div></div>))}
               </div>
             </div>
             <div style={{padding:"0 16px 18px"}}>
@@ -1007,7 +1026,11 @@ export default function App() {
             <div style={{padding:"24px 16px 36px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
               <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[{name:"Weekly",price:"KSh 50",period:"per week",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"weekly"},{name:"Monthly",price:"KSh 200",period:"per month",feats:["Everything Weekly","Best Value","Priority Support"],hot:true,k:"monthly"}].map(plan=>(<div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px",position:"relative"}}>{plan.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div><div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{plan.name}</div><div style={{fontSize:11,color:"#666"}}>{plan.period}</div></div><div style={{fontSize:24,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{plan.price}</div></div><div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>{plan.feats.map(f=><span key={f} style={{fontSize:12,color:"#aaa"}}>✅ {f}</span>)}</div><button onClick={()=>setModal(user?"subscribe":"register")} style={btnPrimary}>{user?"Pay via M-Pesa":"Get Started"}</button></div>))}
+                {[
+                  {name:"Monthly",price:"KSh 250",period:"per month",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"monthly"},
+                  {name:"6 Months",price:"KSh 1,500",period:"per 6 months",feats:["Everything Monthly","Save vs monthly","Priority Support"],k:"sixmonth"},
+                  {name:"12 Months",price:"KSh 3,000",period:"per year",feats:["Everything 6-Month","Best Value","Priority Support"],hot:true,k:"annual"},
+                ].map(plan=>(<div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px",position:"relative"}}>{plan.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div><div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{plan.name}</div><div style={{fontSize:11,color:"#666"}}>{plan.period}</div></div><div style={{fontSize:24,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{plan.price}</div></div><div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>{plan.feats.map(f=><span key={f} style={{fontSize:12,color:"#aaa"}}>✅ {f}</span>)}</div><button onClick={()=>setModal(user?"subscribe":"register")} style={btnPrimary}>{user?"Pay via M-Pesa":"Get Started"}</button></div>))}
               </div>
             </div>
             <div style={{background:"#05090f",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"22px 16px 30px",textAlign:"center"}}>
