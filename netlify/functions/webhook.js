@@ -35,8 +35,8 @@ exports.handler = async (event) => {
     const amount = parseFloat(body.net_amount || body.value || body.amount || 0);
 
     // Determine plan from amount paid (highest tier first)
-    // Monthly = KSh 250, 6 Months = KSh 1,500, 12 Months = KSh 3,000
-    const plan = amount >= 3000 ? "annual" : amount >= 1500 ? "sixmonth" : "monthly";
+    // Monthly = KSh 200, 6 Months = KSh 800, 12 Months = KSh 1,200
+    const plan = amount >= 1200 ? "annual" : amount >= 800 ? "sixmonth" : "monthly";
 
     const days = PLAN_DAYS[plan];
     const now = new Date();
