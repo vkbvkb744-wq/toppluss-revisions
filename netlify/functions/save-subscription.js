@@ -1,6 +1,6 @@
 // netlify/functions/save-subscription.js
 // Called after successful M-Pesa STK push confirmation
-// POST { userId, plan: "weekly" | "monthly", phone }
+// POST { userId, plan: "monthly" | "sixmonth" | "annual", phone }
 // Inserts subscription row with correct expiry
 
 const { createClient } = require("@supabase/supabase-js");
@@ -11,8 +11,9 @@ const supabase = createClient(
 );
 
 const PLAN_DAYS = {
-  weekly: 7,
   monthly: 30,
+  sixmonth: 180,
+  annual: 365,
 };
 
 exports.handler = async (event) => {
@@ -32,7 +33,7 @@ exports.handler = async (event) => {
   if (!userId || !plan || !PLAN_DAYS[plan]) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: "userId and valid plan (weekly/monthly) required" }),
+      body: JSON.stringify({ error: "userId and valid plan (monthly/sixmonth/annual) required" }),
     };
   }
 
