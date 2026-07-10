@@ -3,7 +3,7 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const { phone, amount } = JSON.parse(event.body);
+  const { phone, amount, userId } = JSON.parse(event.body);
 
   try {
     const res = await fetch("https://payment.intasend.com/api/v1/payment/mpesa-stk-push/", {
@@ -17,6 +17,7 @@ exports.handler = async (event) => {
         phone_number: phone,
         amount: amount,
         currency: "KES",
+        api_ref: userId,
         narrative: "Toppluss Revisions Payment"
       })
     });
