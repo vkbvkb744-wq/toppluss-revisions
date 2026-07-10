@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const PLAN_DAYS = { weekly: 7, monthly: 30 };
+const PLAN_DAYS = { monthly: 30, sixmonth: 180, annual: 365 };
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -33,20 +33,44 @@ exports.handler = async (event) => {
     }
 
     const amount = parseFloat(body.net_amount || body.value || body.amount || 0);
-    const plan = amount >= 150 ? "monthly" : "weekly";
+
+    // Determine plan from amount paid (highest tier first)
+    // Monthly = KSh 250, 6 Months = KSh 1,500, 12 Months = KSh 3,000
+    const plan = amount >= 3000 ? "annual" : amount >= 1500 ? "sixmonth" : "monthly";
+
     const days = PLAN_DAYS[plan];
     const now = new Date();
     const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     const checkoutRequestId = body.checkout_request_id || body.id || body.invoice_id || null;
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("phone", phone)
-      .single();
+    // FIX 3: Identify the user by api_ref (the userId we attached when starting
+    // the STK push) instead of relying only on phone number matching.
+    // This means the account gets activated even if the person pays using a
+    // different phone number than the one they registered with.
+    let profile = null;
+    const apiRefUserId = body.api_ref;
+
+    if (apiRefUserId) {
+      const { data: byId } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", apiRefUserId)
+        .single();
+      if (byId) profile = byId;
+    }
+
+    // Fallback: match by phone number if api_ref lookup didn't find anyone
+    if (!profile) {
+      const { data: byPhone } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("phone", phone)
+        .single();
+      if (byPhone) profile = byPhone;
+    }
 
     if (!profile) {
-      console.error("User not found:", phone);
+      console.error("User not found. api_ref:", apiRefUserId, "phone:", phone);
       return { statusCode: 200, body: "User not found" };
     }
 
@@ -66,7 +90,7 @@ exports.handler = async (event) => {
       checkout_request_id: checkoutRequestId,
     }]);
 
-    console.log("Activated:", phone, plan, checkoutRequestId);
+    console.log("Activated:", profile.id, phone, plan, checkoutRequestId);
     return { statusCode: 200, body: "OK" };
 
   } catch (err) {
