@@ -777,16 +777,18 @@ export default function App() {
     const [migrateAllRunning,setMigrateAllRunning]=useState(false);
     const [migrateProgress,setMigrateProgress]=useState("");
     const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
-    const aSubs=["All Subjects",...(SUBS_CBC[form.level]||SUBS_844[form.level]||[])];
+    const subjectList=SUBS_CBC[form.level]||SUBS_844[form.level]||[];
     useEffect(()=>{sessionStorage.setItem("adminForm",JSON.stringify(form));},[form]);
-    const toggleSub=(s)=>{if(s==="All Subjects"){setSelectedSubs(p=>p.length===aSubs.length?[]:aSubs);return;}setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);};
+    const toggleSub=(s)=>{setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);};
+    const selectAllSubs=()=>setSelectedSubs(subjectList);
+    const clearAllSubs=()=>setSelectedSubs([]);
 
     const upload=async()=>{
       if(!form.title){showToast("Fill Title","err");return;}
       if(selectedSubs.length===0){showToast("Select at least one Subject","err");return;}
       const url=pasteUrl.trim();
       if(!url){showToast("Paste a Google Drive URL first","err");return;}
-      const subjectsToSave=selectedSubs.includes("All Subjects")?aSubs.filter(s=>s!=="All Subjects"):selectedSubs;
+      const subjectsToSave=selectedSubs;
       setUploading(true);
       setProgress("Saving to database…");
       try{
@@ -937,8 +939,12 @@ export default function App() {
               <div><label style={lbl}>Type</label><select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
               <div>
                 <label style={lbl}>Subject * — Select one or more ({selectedSubs.length} selected)</label>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <button type="button" onClick={selectAllSubs} style={{flex:1,background:"rgba(39,174,96,0.12)",border:"1px solid rgba(39,174,96,0.3)",color:"#27ae60",borderRadius:8,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:12}}>✅ Select All</button>
+                  <button type="button" onClick={clearAllSubs} style={{flex:1,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#888",borderRadius:8,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:12}}>✕ Clear All</button>
+                </div>
                 <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px",maxHeight:200,overflowY:"auto"}}>
-                  {aSubs.map(s=>(<label key={s} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.04)"}}><input type="checkbox" checked={selectedSubs.includes(s)} onChange={()=>toggleSub(s)} style={{width:16,height:16,accentColor:"#ffb400",cursor:"pointer"}}/><span style={{fontSize:13,color:selectedSubs.includes(s)?"#ffb400":"#ccc",fontWeight:selectedSubs.includes(s)?700:400}}>{s}</span>{s==="All Subjects"&&<span style={{fontSize:10,color:"#555",marginLeft:"auto"}}>← select all</span>}</label>))}
+                  {subjectList.map(s=>(<label key={s} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.04)"}}><input type="checkbox" checked={selectedSubs.includes(s)} onChange={()=>toggleSub(s)} style={{width:16,height:16,accentColor:"#ffb400",cursor:"pointer"}}/><span style={{fontSize:13,color:selectedSubs.includes(s)?"#ffb400":"#ccc",fontWeight:selectedSubs.includes(s)?700:400}}>{s}</span></label>))}
                 </div>
                 {selectedSubs.length>0&&<div style={{marginTop:6,fontSize:11,color:"#27ae60"}}>✅ Selected: {selectedSubs.join(", ")}</div>}
               </div>
