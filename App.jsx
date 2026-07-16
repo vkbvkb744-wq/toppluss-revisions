@@ -219,7 +219,7 @@ export default function App() {
 
   useEffect(()=>{
     let title="Toppluss Revisions — Kenya's #1 Revision Platform";
-    let desc="Download KCSE & CBC notes, past papers and marking schemes. KSh 200/month unlimited access via M-Pesa.";
+    let desc="Download KCSE & CBC notes, past papers and marking schemes. From KSh 100/2 weeks unlimited access via M-Pesa.";
     if(page==="browse"){
       title="Browse Revision Materials | Toppluss Revisions";
       desc="Browse thousands of CBC and 8-4-4 notes, past papers, marking schemes for Kenyan students.";
@@ -649,7 +649,7 @@ export default function App() {
     <div style={{textAlign:"center",padding:"10px 0"}}>
       <div style={{fontSize:48,marginBottom:12}}>🔒</div>
       <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 8px",fontSize:20}}>Register to Continue</h2>
-      <p style={{color:"#888",fontSize:13,margin:"0 0 20px",lineHeight:1.65}}>Create a free account, then subscribe from <strong style={{color:"#ffb400"}}>KSh 200/month</strong> to download materials.</p>
+      <p style={{color:"#888",fontSize:13,margin:"0 0 20px",lineHeight:1.65}}>Create a free account, then subscribe from <strong style={{color:"#ffb400"}}>KSh 100/2 weeks</strong> to download materials.</p>
       <div style={{display:"grid",gap:10}}>
         <button onClick={()=>setModal("register")} style={btnPrimary}>Register Free</button>
         <button onClick={()=>setModal("login")} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"12px 0",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:14,width:"100%"}}>Already have account? Login</button>
@@ -700,7 +700,7 @@ export default function App() {
           </div>
         )}
         {user&&!isSubscribed&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}><span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>🔐 Subscribe to preview & download all documents</span></div>)}
-        {!user&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}><span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free, then subscribe from KSh 200/month</span></div>)}
+        {!user&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",marginBottom:12,textAlign:"center"}}><span style={{fontSize:12,color:"#ffb400",fontWeight:600}}>📖 Register free, then subscribe from KSh 100/2 weeks</span></div>)}
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>setModal(null)} style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",color:"#aaa",padding:"11px 0",borderRadius:9,cursor:"pointer",fontWeight:600,fontSize:13}}>Close</button>
           {!user?(<button onClick={()=>setModal("register")} style={{flex:2,...btnPrimary,padding:"11px 0",borderRadius:9,fontSize:13}}>Register to Continue</button>
@@ -968,7 +968,7 @@ export default function App() {
       <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}><span style={{fontSize:18}}>{isTeacherAcct?"👩‍🏫":"👤"}</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Welcome, {userName.split(" ")[0]}!</h2>{isTeacherAcct&&<span style={{fontSize:9,background:"rgba(255,180,0,0.15)",color:"#ffb400",borderRadius:6,padding:"2px 8px",fontWeight:700,textTransform:"uppercase"}}>Teacher</span>}</div>
         {expired&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>⚠️ Subscription Expired</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>Your {subscription.plan} plan expired. Renew to restore access.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Renew Now</button></div>)}
-        {!isSubscribed&&!expired&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 No Active Subscription</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>Subscribe to preview and download materials.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 200/month</button></div>)}
+        {!isSubscribed&&!expired&&(<div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 No Active Subscription</div><p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>Subscribe to preview and download materials.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now — From KSh 100/2 weeks</button></div>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           {(isTeacherAcct?[
             {l:"Account Type",v:"Teacher",i:"👩‍🏫"},
@@ -982,7 +982,7 @@ export default function App() {
             {l:"Days Left",v:isSubscribed?`${subscription.daysLeft} days`:"—",i:"📅"},
           ]).map(c=>(<div key={c.l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"12px"}}><div style={{fontSize:16,marginBottom:5}}>{c.i}</div><div style={{fontSize:10,color:"#666",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{c.l}</div><div style={{fontSize:12,fontWeight:700,color:c.c||"#fff"}}>{c.v}</div></div>))}
         </div>
-        {!isSubscribed&&!expired&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div><p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>Subscribe for unlimited downloads — from KSh 200/month.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button></div>)}
+        {!isSubscribed&&!expired&&(<div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:12,padding:"14px",marginBottom:14}}><div style={{fontWeight:700,color:"#ffb400",marginBottom:5}}>🚀 Unlock Full Access</div><p style={{color:"#888",fontSize:13,margin:"0 0 10px"}}>Subscribe for unlimited downloads — from KSh 100/2 weeks.</p><button onClick={()=>setModal("subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button></div>)}
         <button onClick={logout} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",color:"#666",borderRadius:10,padding:"11px 0",cursor:"pointer",fontWeight:700,fontSize:13,marginBottom:16}}>🚪 Logout</button>
         {!isTeacherAcct&&(<>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><span style={{fontSize:15}}>📚</span><h3 style={{margin:0,fontSize:15,color:"#fff",fontWeight:700}}>Your Materials — {profile.level}</h3></div>
@@ -1012,7 +1012,7 @@ export default function App() {
                 {!user&&<button onClick={()=>setModal("register")} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff",padding:"13px 0",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}}>Register Free</button>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,maxWidth:320,margin:"0 auto"}}>
-                {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["3 Plans","Flexible"],["KSh 200","From /month"]].map(([n,l])=>(<div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}><div style={{fontSize:17,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div><div style={{fontSize:10,color:"#555",marginTop:3}}>{l}</div></div>))}
+                {[["2,000+","Materials"],["CBC + 8-4-4","Systems"],["4 Plans","Flexible"],["KSh 100","From /2 weeks"]].map(([n,l])=>(<div key={l} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"13px 10px",textAlign:"center"}}><div style={{fontSize:17,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{n}</div><div style={{fontSize:10,color:"#555",marginTop:3}}>{l}</div></div>))}
               </div>
             </div>
             <div style={{padding:"0 16px 18px"}}>
