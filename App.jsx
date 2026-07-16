@@ -530,6 +530,7 @@ export default function App() {
   };
 
   const PLANS=[
+    {k:"biweekly",l:"2 Weeks",p:"KSh 100",amount:100,d:"14 days"},
     {k:"monthly",l:"Monthly",p:"KSh 200",amount:200,d:"30 days"},
     {k:"sixmonth",l:"6 Months",p:"KSh 800",amount:800,d:"180 days"},
     {k:"annual",l:"12 Months",p:"KSh 1,200",amount:1200,d:"365 days",hot:true},
@@ -1028,6 +1029,7 @@ export default function App() {
               <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
                 {[
+                  {name:"2 Weeks",price:"KSh 100",period:"per 2 weeks",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"biweekly"},
                   {name:"Monthly",price:"KSh 200",period:"per month",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"monthly"},
                   {name:"6 Months",price:"KSh 800",period:"per 6 months",feats:["Everything Monthly","Save vs monthly","Priority Support"],k:"sixmonth"},
                   {name:"12 Months",price:"KSh 1,200",period:"per year",feats:["Everything 6-Month","Best Value","Priority Support"],hot:true,k:"annual"},
