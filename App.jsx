@@ -161,7 +161,7 @@ function Card({ m, getIcon, onPreview, onDownload }) {
         <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{m.system} · {m.level}</div>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</div>
         {m.description&&<div style={{fontSize:11,color:"#777",marginBottom:4,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.description}</div>}
-        <div style={{fontSize:11,color:"#555",marginBottom:9}}>{m.subject} · {m.type}</div>
+        <div style={{fontSize:11,color:"#555",marginBottom:9}}>{(m.subjects&&m.subjects.length>0)?m.subjects.join(", "):m.subject} · {m.type}</div>
         <div style={{display:"flex",gap:7}}>
           <button onClick={()=>onPreview(m)} style={{flex:1,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.09)",color:"#ccc",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:600,fontSize:11}}>👁 Preview</button>
           <button onClick={()=>onDownload(m)} style={{flex:1,background:"linear-gradient(135deg,#ffb400,#ff7b00)",border:"none",color:"#000",borderRadius:8,padding:"7px 0",cursor:"pointer",fontWeight:800,fontSize:11}}>⬇ Download</button>
@@ -340,9 +340,9 @@ export default function App() {
     if(profile?.system&&!isAdmin&&profile.role!=="teacher"&&m.system!==profile.system) return false;
     if(filt.system&&m.system!==filt.system) return false;
     if(filt.level&&m.level!==filt.level) return false;
-    if(filt.subject&&m.subject!==filt.subject) return false;
+    if(filt.subject){const subs=(m.subjects&&m.subjects.length>0)?m.subjects:[m.subject];if(!subs.includes(filt.subject)) return false;}
     if(filt.type&&m.type!==filt.type) return false;
-    if(search){const words=search.toLowerCase().trim().split(/\s+/);const haystack=[m.title,m.subject,m.type,m.description,m.level,m.system].filter(Boolean).join(" ").toLowerCase();if(!words.every(w=>haystack.includes(w))) return false;}
+    if(search){const words=search.toLowerCase().trim().split(/\s+/);const subsStr=(m.subjects&&m.subjects.length>0)?m.subjects.join(" "):m.subject;const haystack=[m.title,subsStr,m.type,m.description,m.level,m.system].filter(Boolean).join(" ").toLowerCase();if(!words.every(w=>haystack.includes(w))) return false;}
     return true;
   });
 
@@ -667,7 +667,7 @@ export default function App() {
           <div>
             <div style={{fontSize:9,color:"#ffb400",fontWeight:700,textTransform:"uppercase"}}>{prevMat.system} · {prevMat.level}</div>
             <div style={{fontSize:14,fontWeight:700,color:"#fff",margin:"2px 0"}}>{prevMat.title}</div>
-            <div style={{fontSize:11,color:"#666"}}>{prevMat.subject} · {prevMat.type}</div>
+            <div style={{fontSize:11,color:"#666"}}>{(prevMat.subjects&&prevMat.subjects.length>0)?prevMat.subjects.join(", "):prevMat.subject} · {prevMat.type}</div>
             <div style={{marginTop:3}}><StorageBadge url={prevMat.file_url}/></div>
           </div>
         </div>
@@ -690,7 +690,7 @@ export default function App() {
             <div style={{fontSize:13,fontWeight:700,textAlign:"center",marginBottom:10,color:"#fff"}}>{prevMat.title}</div>
             <div style={{fontSize:12,color:"#bbb",lineHeight:1.8}}>
               <p style={{margin:"0 0 8px"}}><strong style={{color:"#fff"}}>1. Introduction</strong></p>
-              <p style={{margin:"0 0 8px"}}>This material covers essential concepts for <strong style={{color:"#ffb400"}}>{prevMat.subject}</strong> at <strong style={{color:"#ffb400"}}>{prevMat.level}</strong>.</p>
+              <p style={{margin:"0 0 8px"}}>This material covers essential concepts for <strong style={{color:"#ffb400"}}>{(prevMat.subjects&&prevMat.subjects.length>0)?prevMat.subjects.join(", "):prevMat.subject}</strong> at <strong style={{color:"#ffb400"}}>{prevMat.level}</strong>.</p>
             </div>
             <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%) rotate(-28deg)",opacity:0.08,fontSize:13,fontWeight:900,color:"#fff",whiteSpace:"nowrap",pointerEvents:"none",letterSpacing:1}}>www.topplussrevisions.top</div>
             <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(transparent,rgba(13,25,41,0.98))",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:8}}>
@@ -792,29 +792,24 @@ export default function App() {
       setUploading(true);
       setProgress("Saving to database…");
       try{
-        const savedIds = [];
-        for(let i=0;i<subjectsToSave.length;i++){
-          const sub=subjectsToSave[i];
-          setProgress(`Saving ${i+1}/${subjectsToSave.length}: ${sub}…`);
-          const{data,error}=await supabase.from("materials").insert([{
-            title:form.title,description:form.description,
-            system:form.system,level:form.level,
-            subject:sub,type:form.type,
-            file_url:url,
-            downloads:0
-          }]).select();
-          if(error) throw new Error(error.message);
-          if(data?.[0]) savedIds.push(data[0].id);
-        }
-        showToast(`✅ Saved ${subjectsToSave.length} subject(s)! Now migrating to R2…`,"info");
+        const{data,error}=await supabase.from("materials").insert([{
+          title:form.title,description:form.description,
+          system:form.system,level:form.level,
+          subject:subjectsToSave[0],subjects:subjectsToSave,type:form.type,
+          file_url:url,
+          downloads:0
+        }]).select();
+        if(error) throw new Error(error.message);
+        const savedId = data?.[0]?.id;
+        showToast(`✅ Saved with ${subjectsToSave.length} subject(s)! Now migrating to R2…`,"info");
         setForm({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes"});
         sessionStorage.removeItem("adminForm");setPasteUrl("");setSelectedSubs([]);
         await loadMats();
         setUploading(false);setProgress("");
-        for(const id of savedIds){
-          setMigratingIds(prev=>new Set([...prev,id]));
-          const result = await migrateToR2(id, url, `${form.title.replace(/\s+/g,"_")}.pdf`);
-          setMigratingIds(prev=>{const s=new Set(prev);s.delete(id);return s;});
+        if(savedId){
+          setMigratingIds(prev=>new Set([...prev,savedId]));
+          const result = await migrateToR2(savedId, url, `${form.title.replace(/\s+/g,"_")}.pdf`);
+          setMigratingIds(prev=>{const s=new Set(prev);s.delete(savedId);return s;});
           if(result.success) showToast(`☁ Migrated to R2 successfully!`);
           else showToast(`⚠️ R2 migration failed: ${result.error}. File still available via Drive.`,"err");
         }
