@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const PLAN_DAYS = { monthly: 30, sixmonth: 180, annual: 365 };
+const PLAN_DAYS = { biweekly: 14, monthly: 30, sixmonth: 180, annual: 365 };
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -35,8 +35,12 @@ exports.handler = async (event) => {
     const amount = parseFloat(body.net_amount || body.value || body.amount || 0);
 
     // Determine plan from amount paid (highest tier first)
-    // Monthly = KSh 200, 6 Months = KSh 800, 12 Months = KSh 1,200
-    const plan = amount >= 1200 ? "annual" : amount >= 800 ? "sixmonth" : "monthly";
+    // 2 Weeks = KSh 100, Monthly = KSh 200, 6 Months = KSh 800, 12 Months = KSh 1,200
+    const plan =
+      amount >= 1200 ? "annual" :
+      amount >= 800 ? "sixmonth" :
+      amount >= 200 ? "monthly" :
+      "biweekly";
 
     const days = PLAN_DAYS[plan];
     const now = new Date();
