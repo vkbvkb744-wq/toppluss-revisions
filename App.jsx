@@ -175,6 +175,24 @@ function Card({ m, getIcon, onPreview, onDownload }) {
   );
 }
 
+const SCHOOL_PLANS = [
+  {k:"monthly",l:"Monthly",p:"KSh 5,000",amount:5000,d:"30 days"},
+  {k:"sixmonth",l:"6 Months",p:"KSh 50,000",amount:50000,d:"180 days"},
+  {k:"annual",l:"12 Months",p:"KSh 120,000",amount:120000,d:"365 days",hot:true},
+];
+
+// Small gold checkmark shown next to a verified (paid, active) school's name
+function GoldBadge() {
+  return (
+    <span title="Gold Verified School" style={{
+      display:"inline-flex",alignItems:"center",justifyContent:"center",
+      width:14,height:14,borderRadius:"50%",
+      background:"linear-gradient(135deg,#ffd700,#b8860b)",
+      color:"#000",fontSize:9,fontWeight:900,marginLeft:5,flexShrink:0,
+    }}>✓</span>
+  );
+}
+
 function SectionHead({ icon, title, sub }) {
   return (
     <div style={{marginBottom:14}}>
@@ -199,6 +217,12 @@ export default function App() {
   const [filt, setFilt]       = useState({system:"",level:"",subject:"",type:""});
   const [prevMat, setPrevMat] = useState(null);
   const [toast, setToast]     = useState({msg:"",type:"ok"});
+
+  // ── School portal state ──
+  const [school, setSchool]           = useState(null);   // the school row the user belongs to (student or staff)
+  const [schoolRole, setSchoolRole]   = useState(null);    // "admin" | "teacher" | "student" | null
+  const [schoolMats, setSchoolMats]   = useState([]);      // materials scoped to schools (own + shared)
+  const [portalView, setPortalView]   = useState("mine");  // "mine" | "shared" toggle on the student school portal
 
   useEffect(()=>{
     document.documentElement.style.backgroundColor="#080e1c";
@@ -252,11 +276,11 @@ export default function App() {
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{
-      if(session?.user){setUser(session.user);loadProfile(session.user.id);checkSub(session.user.id);}
+      if(session?.user){setUser(session.user);loadProfile(session.user.id);checkSub(session.user.id);checkSchoolMembership(session.user.id);}
     });
     const {data:l}=supabase.auth.onAuthStateChange((_,session)=>{
-      if(session?.user){setUser(session.user);loadProfile(session.user.id);checkSub(session.user.id);}
-      else{setUser(null);setProfile(null);setSub(null);}
+      if(session?.user){setUser(session.user);loadProfile(session.user.id);checkSub(session.user.id);checkSchoolMembership(session.user.id);}
+      else{setUser(null);setProfile(null);setSub(null);setSchool(null);setSchoolRole(null);setSchoolMats([]);}
     });
     return ()=>l.subscription.unsubscribe();
   },[]);
@@ -307,6 +331,40 @@ export default function App() {
       if(data.reason==="expired") showToast("⚠️ Subscription expired. Please renew.","err");
     }catch(e){console.error(e);}
   };
+
+  // Figures out if this user is tied to a school — as the school admin (schools.admin_id),
+  // an added teacher (school_teachers), or a joined student (school_students) — and whether
+  // that school's own subscription is currently active.
+  const checkSchoolMembership = async (id) => {
+    try {
+      const { data: asAdmin } = await supabase.from("schools").select("*").eq("admin_id", id).maybeSingle();
+      if (asAdmin) { setSchool(asAdmin); setSchoolRole("admin"); return; }
+
+      const { data: asTeacher } = await supabase.from("school_teachers").select("*, schools(*)").eq("user_id", id).eq("status","active").maybeSingle();
+      if (asTeacher?.schools) { setSchool(asTeacher.schools); setSchoolRole("teacher"); return; }
+
+      const { data: asStudent } = await supabase.from("school_students").select("*, schools(*)").eq("user_id", id).maybeSingle();
+      if (asStudent?.schools) { setSchool(asStudent.schools); setSchoolRole("student"); return; }
+
+      setSchool(null); setSchoolRole(null);
+    } catch (e) { console.error(e); }
+  };
+
+  const schoolActive = (s) => !!s && s.status === "approved" && s.subscription_expiry && new Date(s.subscription_expiry) > new Date();
+
+  // Own-school materials + shared materials from other (still-active) schools
+  const loadSchoolMats = async () => {
+    if (!school) return;
+    const { data: mine } = await supabase.from("materials").select("*").eq("school_id", school.id).order("created_at",{ascending:false});
+    const { data: shared } = await supabase.from("materials").select("*, schools!inner(status,subscription_expiry,name,gold_verified)").eq("visibility","shared").neq("school_id", school.id).order("created_at",{ascending:false});
+    const activeShared = (shared||[]).filter(m => m.schools && m.schools.status==="approved" && m.schools.subscription_expiry && new Date(m.schools.subscription_expiry) > new Date());
+    setSchoolMats([
+      ...(mine||[]).map((m,i)=>({...m,color:COLORS[i%COLORS.length],scope:"mine"})),
+      ...activeShared.map((m,i)=>({...m,color:COLORS[i%COLORS.length],scope:"shared",schoolName:m.schools.name,schoolGold:m.schools.gold_verified})),
+    ]);
+  };
+
+  useEffect(()=>{ if(school) loadSchoolMats(); },[school]);
 
   const migrateToR2 = async (materialId, driveUrl, fileName) => {
     try {
@@ -401,6 +459,11 @@ export default function App() {
       <div style={{padding:"0 16px 10px",display:"flex",alignItems:"center",gap:12,flexWrap:"nowrap",overflowX:"auto"}}>
         <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:page==="home"?"#ffb400":"#bbb",cursor:"pointer",fontWeight:600,fontSize:13,padding:0,whiteSpace:"nowrap",flexShrink:0}}>🏠 Home</button>
         <button onClick={()=>setPage("browse")} style={{background:"none",border:"none",color:page==="browse"?"#ffb400":"#bbb",cursor:"pointer",fontWeight:600,fontSize:13,padding:0,whiteSpace:"nowrap",flexShrink:0}}>📚 Browse</button>
+        <button onClick={()=>{
+          if(schoolRole==="admin"||schoolRole==="teacher") setPage("school-admin");
+          else if(schoolRole==="student") setPage("school-portal");
+          else setPage("school");
+        }} style={{background:"none",border:"none",color:["school","school-admin","school-portal"].includes(page)?"#ffb400":"#bbb",cursor:"pointer",fontWeight:600,fontSize:13,padding:0,whiteSpace:"nowrap",flexShrink:0}}>🏫 School</button>
         {isAdmin&&<button onClick={()=>setPage("admin")} style={{background:"none",border:"none",color:page==="admin"?"#ffb400":"#bbb",cursor:"pointer",fontWeight:600,fontSize:13,padding:0,whiteSpace:"nowrap",flexShrink:0}}>🛠 Admin</button>}
         <div style={{flex:1,minWidth:8}}/>
         {user?(
@@ -529,6 +592,71 @@ export default function App() {
     );
   };
 
+  const JoinSchoolM=()=>{
+    const [code,setCode]=useState("");
+    const [ld,setLd]=useState(false);
+    const go=async()=>{
+      if(!code.trim()){showToast("Enter your school code","err");return;}
+      if(!isSubscribed){showToast("Subscribe to the platform first, then join your school","err");setModal("subscribe");return;}
+      setLd(true);
+      const{data:sch,error:e1}=await supabase.from("schools").select("*").eq("code",code.trim().toUpperCase()).maybeSingle();
+      if(e1||!sch){showToast("School code not found","err");setLd(false);return;}
+      if(sch.status!=="approved"){showToast("This school is still pending approval","err");setLd(false);return;}
+      const{error:e2}=await supabase.from("school_students").insert([{school_id:sch.id,user_id:user.id}]);
+      if(e2){showToast("Could not join: "+e2.message,"err");setLd(false);return;}
+      await checkSchoolMembership(user.id);
+      showToast(`🎉 Joined ${sch.name}!`);
+      setModal(null);setPage("school-portal");
+      setLd(false);
+    };
+    return(
+      <div>
+        <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Join Your School</h2>
+        <p style={{color:"#777",fontSize:12,margin:"0 0 18px"}}>Enter the code your school gave you to unlock their materials and videos.</p>
+        <div style={{display:"grid",gap:12}}>
+          <div><label style={lbl}>School Code</label><input value={code} onChange={e=>setCode(e.target.value)} style={{...inp,textTransform:"uppercase",letterSpacing:2,fontWeight:800}} placeholder="E.G. STAREHE01" onKeyDown={e=>e.key==="Enter"&&go()}/></div>
+          <button onClick={go} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Joining…":"Join School"}</button>
+          <p style={{textAlign:"center",fontSize:11,color:"#555",margin:0}}>Don't have a code? Your school hasn't registered yet — ask them to register below.</p>
+          <button onClick={()=>setModal("school-register")} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#ccc",padding:"11px 0",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:13,width:"100%"}}>Register My School Instead</button>
+        </div>
+      </div>
+    );
+  };
+
+  const RegisterSchoolM=()=>{
+    const [f,setF]=useState({name:"",code:"",contactPhone:""});
+    const [ld,setLd]=useState(false);
+    const go=async()=>{
+      if(!user){showToast("Login or register a free account first","err");setModal("register");return;}
+      if(!f.name||!f.code){showToast("Fill in school name and a unique code","err");return;}
+      setLd(true);
+      const{error}=await supabase.from("schools").insert([{
+        name:f.name,code:f.code.trim().toUpperCase(),contact_phone:f.contactPhone,
+        admin_id:user.id,status:"pending",gold_verified:false,
+      }]);
+      if(error){showToast("Registration failed: "+error.message,"err");setLd(false);return;}
+      await checkSchoolMembership(user.id);
+      showToast("🏫 School submitted! We'll approve it shortly.");
+      setModal(null);setPage("school");
+      setLd(false);
+    };
+    return(
+      <div>
+        <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Register Your School</h2>
+        <p style={{color:"#777",fontSize:12,margin:"0 0 18px"}}>Get your school its own portal — add teachers, upload materials, and give students a code to log in with.</p>
+        <div style={{display:"grid",gap:12}}>
+          <div><label style={lbl}>School Name</label><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} style={inp} placeholder="e.g. Starehe Girls Centre"/></div>
+          <div><label style={lbl}>Choose a School Code</label><input value={f.code} onChange={e=>setF(p=>({...p,code:e.target.value}))} style={{...inp,textTransform:"uppercase"}} placeholder="e.g. STAREHE01"/></div>
+          <div><label style={lbl}>Contact Phone</label><input value={f.contactPhone} onChange={e=>setF(p=>({...p,contactPhone:e.target.value}))} style={inp} placeholder="0712345678" maxLength={10}/></div>
+          <div style={{background:"rgba(255,180,0,0.06)",border:"1px solid rgba(255,180,0,0.18)",borderRadius:9,padding:"10px",fontSize:12,color:"#ffb400",lineHeight:1.6}}>
+            Pricing: KSh 5,000/month · KSh 50,000/6 months · KSh 120,000/12 months. Your school gets a <strong>Gold ✓</strong> badge once subscribed and approved.
+          </div>
+          <button onClick={go} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Submitting…":"Submit for Approval"}</button>
+        </div>
+      </div>
+    );
+  };
+
   const PLANS=[
     {k:"biweekly",l:"2 Weeks",p:"KSh 100",amount:100,d:"14 days"},
     {k:"monthly",l:"Monthly",p:"KSh 200",amount:200,d:"30 days"},
@@ -641,6 +769,111 @@ export default function App() {
             <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${selectedPlan.p} via M-Pesa`}</button>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const SchoolSubscribeM=()=>{
+    const [plan,setPlan]=useState("monthly");
+    const [phone,setPhone]=useState(profile?.phone||"");
+    const [ld,setLd]=useState(false);
+    const [step,setStep]=useState("choose");
+    const selectedPlan=SCHOOL_PLANS.find(pl=>pl.k===plan);
+
+    const pay=async()=>{
+      if(!isValidPhone(phone)){showToast("Enter valid 07 number","err");return;}
+      setLd(true);setStep("mpesa");
+      try{
+        const res=await fetch("/.netlify/functions/mpesa",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({phone:toApiPhone(phone),amount:selectedPlan.amount,plan,userId:user.id,schoolId:school?.id})
+        });
+        const data=await res.json();
+        if(!data.success&&!res.ok){showToast("Payment failed: "+(data.message||"Try again"),"err");setStep("choose");setLd(false);return;}
+        setStep("waiting");setLd(false);
+        const channel=supabase
+          .channel("school-payment-"+school.id)
+          .on("postgres_changes",{event:"UPDATE",schema:"public",table:"schools",filter:`id=eq.${school.id}`},
+            async(payload)=>{
+              const row=payload.new;
+              if(row&&row.subscription_expiry&&new Date(row.subscription_expiry)>new Date()){
+                channel.unsubscribe();
+                await checkSchoolMembership(user.id);
+                setStep("done");
+              }
+            }
+          ).subscribe();
+        setTimeout(()=>{try{channel.unsubscribe();}catch(e){} setStep(prev=>prev==="waiting"?"timeout":prev);},180000);
+      }catch(e){showToast("Error: "+e.message,"err");setStep("choose");setLd(false);}
+    };
+
+    return(
+      <div>
+        {step==="done"?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:52,marginBottom:12}}>🎉</div>
+            <h2 style={{color:"#ffb400",fontFamily:"'Playfair Display',serif",margin:"0 0 8px"}}>School Subscribed!</h2>
+            <p style={{color:"#888",marginBottom:20,fontSize:14}}>{school?.name} is now active on the {selectedPlan.l} plan.</p>
+            <button onClick={()=>{setModal(null);setPage("school-admin");}} style={btnPrimary}>Go to School Dashboard</button>
+          </div>
+        ):step==="waiting"?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:44,marginBottom:12}}>📱</div>
+            <h3 style={{color:"#fff",margin:"0 0 8px"}}>Check Your Phone</h3>
+            <p style={{color:"#888",fontSize:13}}>STK Push sent to <strong style={{color:"#ffb400"}}>{phone}</strong></p>
+            <p style={{color:"#444",fontSize:11,marginTop:12}}>⏳ Waiting for confirmation…</p>
+          </div>
+        ):step==="mpesa"?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:44,marginBottom:12}}>📱</div>
+            <h3 style={{color:"#fff",margin:"0 0 8px"}}>Sending STK Push...</h3>
+          </div>
+        ):step==="timeout"?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:44,marginBottom:12}}>⚠️</div>
+            <h3 style={{color:"#fff",margin:"0 0 8px"}}>Payment Not Confirmed</h3>
+            <button onClick={()=>setStep("choose")} style={btnPrimary}>Try Again</button>
+          </div>
+        ):(
+          <div>
+            <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Subscribe {school?.name}</h2>
+            <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>Keeps your school's portal, teachers, and students active</p>
+            <div style={{display:"grid",gap:10,marginBottom:14}}>
+              {SCHOOL_PLANS.map(pl=>(
+                <div key={pl.k} onClick={()=>setPlan(pl.k)} style={{border:`2px solid ${plan===pl.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"13px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",background:plan===pl.k?"rgba(255,180,0,0.06)":"transparent",position:"relative"}}>
+                  {pl.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}
+                  <div><div style={{fontWeight:700,color:"#fff",fontSize:13}}>{pl.l}</div><div style={{fontSize:10,color:"#666",marginTop:2}}>{pl.d}</div></div>
+                  <div style={{fontSize:20,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{pl.p}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{marginBottom:14}}><label style={lbl}>M-Pesa Phone (07…)</label><input value={phone} onChange={e=>setPhone(e.target.value)} style={inp} placeholder="0712345678" maxLength={10}/></div>
+            <button onClick={pay} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Sending STK Push…":`Pay ${selectedPlan.p} via M-Pesa`}</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const InviteTeacherM=()=>{
+    const [email,setEmail]=useState("");
+    const [ld,setLd]=useState(false);
+    const go=async()=>{
+      if(!email.includes("@")){showToast("Enter a valid Gmail address","err");return;}
+      setLd(true);
+      const{error}=await supabase.from("school_teachers").insert([{school_id:school.id,email:email.trim().toLowerCase(),invited_by:user.id,status:"invited"}]);
+      if(error){showToast("Failed: "+error.message,"err");}
+      else{showToast("✅ Teacher invited — they'll get access once they register with that email.");setModal(null);}
+      setLd(false);
+    };
+    return(
+      <div>
+        <h2 style={{color:"#fff",fontFamily:"'Playfair Display',serif",margin:"0 0 4px",fontSize:22}}>Add a Teacher</h2>
+        <p style={{color:"#777",fontSize:12,margin:"0 0 16px"}}>Only teachers you add here can log in and upload for {school?.name}.</p>
+        <div style={{display:"grid",gap:12}}>
+          <div><label style={lbl}>Teacher's Gmail</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} style={inp} placeholder="teacher@gmail.com" onKeyDown={e=>e.key==="Enter"&&go()}/></div>
+          <button onClick={go} disabled={ld} style={{...btnPrimary,opacity:ld?0.7:1}}>{ld?"Inviting…":"Invite Teacher"}</button>
+        </div>
       </div>
     );
   };
@@ -960,6 +1193,243 @@ export default function App() {
     );
   };
 
+  // Landing page for users with no school membership yet — join with a code or register a school
+  const SchoolLanding=()=>(
+    <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
+      <SectionHead icon="🏫" title="School Portal" sub="Access your school's materials, or get your school set up"/>
+      <div style={{display:"grid",gap:12,marginTop:6}}>
+        <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:16}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:6}}>🎓 I'm a Student</div>
+          <p style={{color:"#888",fontSize:12,margin:"0 0 12px",lineHeight:1.6}}>Subscribe to Toppluss, then enter your school's code to unlock their materials and videos — plus what other schools choose to share.</p>
+          <button onClick={()=>{ if(!user){setModal("register");return;} setModal("school-join"); }} style={btnPrimary}>Enter School Code</button>
+        </div>
+        <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:16}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:6}}>🏫 I'm a School</div>
+          <p style={{color:"#888",fontSize:12,margin:"0 0 12px",lineHeight:1.6}}>Register your school, add your teachers, and give students a code to access your notes and videos. From KSh 5,000/month.</p>
+          <button onClick={()=>{ if(!user){setModal("register");return;} setModal("school-register"); }} style={{...btnPrimary,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",color:"#fff"}}>Register My School</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Dashboard for a school admin (owner) or an invited teacher — manage teachers, upload/share materials
+  const SchoolAdmin=()=>{
+    const [tab,setTab]=useState("materials");
+    const [teachers,setTeachers]=useState([]);
+    const [form,setForm]=useState({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes",visibility:"private"});
+    const [selectedSubs,setSelectedSubs]=useState([]);
+    const [pasteUrl,setPasteUrl]=useState("");
+    const [uploading,setUploading]=useState(false);
+    const aLvls=form.system==="CBC"?LEVELS_CBC:LEVELS_844;
+    const subjectList=SUBS_CBC[form.level]||SUBS_844[form.level]||[];
+    const isSchoolAdmin=schoolRole==="admin";
+    const active=schoolActive(school);
+
+    useEffect(()=>{
+      if(tab==="teachers"&&isSchoolAdmin&&school){
+        supabase.from("school_teachers").select("*").eq("school_id",school.id).order("created_at",{ascending:false})
+          .then(({data})=>setTeachers(data||[]));
+      }
+    },[tab,school]);
+
+    const toggleSub=(s)=>setSelectedSubs(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
+
+    const upload=async()=>{
+      if(!active){showToast("School subscription is inactive — renew to upload","err");return;}
+      if(!form.title){showToast("Fill Title","err");return;}
+      if(selectedSubs.length===0){showToast("Select at least one Subject","err");return;}
+      const url=pasteUrl.trim();
+      if(!url){showToast("Paste a Google Drive URL first","err");return;}
+      setUploading(true);
+      const{error}=await supabase.from("materials").insert([{
+        title:form.title,description:form.description,system:form.system,level:form.level,
+        subject:selectedSubs[0],subjects:selectedSubs,type:form.type,file_url:url,downloads:0,
+        school_id:school.id,visibility:form.visibility,uploaded_by:user.id,
+      }]);
+      if(error){showToast("Failed: "+error.message,"err");}
+      else{
+        showToast("✅ Uploaded to "+ (form.visibility==="shared"?"school + shared with other schools":"your school only"));
+        setForm({title:"",description:"",system:"CBC",level:"Grade 1",type:"Notes",visibility:"private"});
+        setSelectedSubs([]);setPasteUrl("");
+        await loadSchoolMats();
+      }
+      setUploading(false);
+    };
+
+    const removeTeacher=async(t)=>{
+      await supabase.from("school_teachers").delete().eq("id",t.id);
+      setTeachers(p=>p.filter(x=>x.id!==t.id));
+      showToast("Teacher removed");
+    };
+
+    const removeMaterial=async(m)=>{
+      const{error}=await supabase.from("materials").delete().eq("id",m.id);
+      if(error){showToast("Failed to delete: "+error.message,"err");return;}
+      showToast("🗑 Deleted "+m.title);
+      await loadSchoolMats();
+    };
+
+    const mine=schoolMats.filter(m=>m.scope==="mine");
+
+    return(
+      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <span style={{fontSize:18}}>🏫</span>
+          <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{school?.name}</h2>
+          {school?.gold_verified&&<GoldBadge/>}
+        </div>
+        <p style={{color:"#666",fontSize:12,margin:"0 0 14px"}}>Code: <strong style={{color:"#ffb400"}}>{school?.code}</strong> · {isSchoolAdmin?"Admin":"Teacher"}</p>
+
+        {!active&&(
+          <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:14}}>
+            <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 {school?.status==="pending"?"Awaiting Approval":"Subscription Inactive"}</div>
+            <p style={{color:"#aaa",fontSize:13,margin:"0 0 10px"}}>{school?.status==="pending"?"We'll notify you once your school is approved.":"Materials stay saved, but teachers and students lose access until you renew."}</p>
+            {school?.status==="approved"&&isSchoolAdmin&&<button onClick={()=>setModal("school-subscribe")} style={{...btnPrimary,padding:"10px 0"}}>Subscribe Now</button>}
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto"}}>
+          {["materials","upload",...(isSchoolAdmin?["teachers"]:[])].map(t=>(
+            <button key={t} onClick={()=>setTab(t)} style={{background:tab===t?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.04)",border:`1px solid ${tab===t?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,color:tab===t?"#ffb400":"#888",padding:"8px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>
+              {t==="upload"?"⬆ Upload":t==="materials"?"📋 Materials":"👩‍🏫 Teachers"}
+            </button>
+          ))}
+        </div>
+
+        {tab==="materials"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {mine.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"#555"}}>No materials uploaded yet.</div>}
+            {mine.map(m=>(
+              <div key={m.id} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.title}</div>
+                  <div style={{fontSize:11,color:"#666"}}>{m.level} · {m.type}</div>
+                </div>
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  <button
+                    onClick={async()=>{
+                      const next=m.visibility==="shared"?"private":"shared";
+                      await supabase.from("materials").update({visibility:next}).eq("id",m.id);
+                      await loadSchoolMats();
+                      showToast(next==="shared"?"🌍 Now shared with other schools":"🔒 Now private to your school");
+                    }}
+                    style={{background:m.visibility==="shared"?"rgba(39,174,96,0.15)":"rgba(255,255,255,0.06)",border:`1px solid ${m.visibility==="shared"?"rgba(39,174,96,0.35)":"rgba(255,255,255,0.1)"}`,color:m.visibility==="shared"?"#27ae60":"#888",borderRadius:8,padding:"7px 12px",cursor:"pointer",fontWeight:700,fontSize:11,whiteSpace:"nowrap"}}
+                  >{m.visibility==="shared"?"🌍 Shared":"🔒 Private"}</button>
+                  <button
+                    onClick={()=>{ if(window.confirm(`Delete "${m.title}"? This can't be undone.`)) removeMaterial(m); }}
+                    style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.25)",color:"#e74c3c",borderRadius:8,padding:"7px 10px",cursor:"pointer",fontWeight:700,fontSize:11}}
+                  >🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab==="upload"&&(
+          <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:16}}>
+            <div style={{display:"grid",gap:12}}>
+              <div><label style={lbl}>Title *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} style={inp} placeholder="e.g. Form 3 Chemistry Notes"/></div>
+              <div><label style={lbl}>Description</label><textarea value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} style={{...inp,minHeight:64,resize:"vertical"}} placeholder="Brief summary…"/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div><label style={lbl}>System</label><select value={form.system} onChange={e=>{setForm(p=>({...p,system:e.target.value,level:e.target.value==="CBC"?"Grade 1":"Form 1"}));setSelectedSubs([]);}} style={{...inp,cursor:"pointer"}}><option>CBC</option><option>8-4-4</option></select></div>
+                <div><label style={lbl}>Level</label><select value={form.level} onChange={e=>{setForm(p=>({...p,level:e.target.value}));setSelectedSubs([]);}} style={{...inp,cursor:"pointer"}}>{aLvls.map(l=><option key={l}>{l}</option>)}</select></div>
+              </div>
+              <div><label style={lbl}>Type</label><select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+              <div>
+                <label style={lbl}>Subject ({selectedSubs.length} selected)</label>
+                <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,padding:"10px",maxHeight:160,overflowY:"auto"}}>
+                  {subjectList.map(s=>(<label key={s} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",cursor:"pointer"}}><input type="checkbox" checked={selectedSubs.includes(s)} onChange={()=>toggleSub(s)} style={{accentColor:"#ffb400"}}/><span style={{fontSize:13,color:selectedSubs.includes(s)?"#ffb400":"#ccc"}}>{s}</span></label>))}
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Visibility</label>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {[{k:"private",l:"🔒 My School Only"},{k:"shared",l:"🌍 Share With Other Schools"}].map(o=>(
+                    <div key={o.k} onClick={()=>setForm(p=>({...p,visibility:o.k}))} style={{border:`2px solid ${form.visibility===o.k?"#ffb400":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"10px 0",textAlign:"center",cursor:"pointer",fontSize:12,fontWeight:700,color:form.visibility===o.k?"#ffb400":"#ccc"}}>{o.l}</div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>📎 Paste Google Drive Link *</label>
+                <textarea value={pasteUrl} onChange={e=>setPasteUrl(e.target.value)} placeholder="https://drive.google.com/file/d/XXXX/view" style={{...inp,minHeight:70,resize:"vertical",fontSize:12}}/>
+              </div>
+              <button onClick={upload} disabled={uploading||!active} style={{...btnPrimary,opacity:(uploading||!active)?0.6:1}}>{uploading?"Saving…":!active?"School Subscription Inactive":"💾 Save Material"}</button>
+            </div>
+          </div>
+        )}
+
+        {tab==="teachers"&&isSchoolAdmin&&(
+          <div>
+            <button onClick={()=>setModal("invite-teacher")} style={{...btnPrimary,marginBottom:14}}>+ Add Teacher by Gmail</button>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {teachers.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"#555"}}>No teachers added yet.</div>}
+              {teachers.map(t=>(
+                <div key={t.id} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"11px 13px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:13,color:"#fff",fontWeight:600}}>{t.email}</div>
+                    <div style={{fontSize:10,color:t.status==="active"?"#27ae60":"#f39c12",fontWeight:700,textTransform:"uppercase"}}>{t.status}</div>
+                  </div>
+                  <button onClick={()=>removeTeacher(t)} style={{background:"rgba(231,76,60,0.12)",border:"1px solid rgba(231,76,60,0.2)",color:"#e74c3c",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>Remove</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Student-facing school portal — toggle between own school's materials and other schools' shared materials
+  const SchoolPortal=()=>{
+    const active=schoolActive(school);
+    const mine=schoolMats.filter(m=>m.scope==="mine");
+    const shared=schoolMats.filter(m=>m.scope==="shared");
+    const shown=portalView==="mine"?mine:shared;
+    return(
+      <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <span style={{fontSize:18}}>🏫</span>
+          <h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{school?.name}</h2>
+          {school?.gold_verified&&<GoldBadge/>}
+        </div>
+        <p style={{color:"#666",fontSize:12,margin:"0 0 16px"}}>Code: <strong style={{color:"#ffb400"}}>{school?.code}</strong></p>
+
+        {!active&&(
+          <div style={{background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:12,padding:"14px",marginBottom:16,textAlign:"center"}}>
+            <div style={{fontWeight:700,color:"#e74c3c",marginBottom:5}}>🔒 School Access Paused</div>
+            <p style={{color:"#aaa",fontSize:13,margin:0}}>{school?.name} needs to renew its subscription before you can view materials again. Your materials are safe and will return once they resubscribe.</p>
+          </div>
+        )}
+
+        {active&&(<>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <button onClick={()=>setPortalView("mine")} style={{flex:1,background:portalView==="mine"?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.04)",border:`1px solid ${portalView==="mine"?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,color:portalView==="mine"?"#ffb400":"#888",padding:"10px 0",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12}}>🏫 My School ({mine.length})</button>
+            <button onClick={()=>setPortalView("shared")} style={{flex:1,background:portalView==="shared"?"rgba(255,180,0,0.1)":"rgba(255,255,255,0.04)",border:`1px solid ${portalView==="shared"?"rgba(255,180,0,0.3)":"rgba(255,255,255,0.07)"}`,color:portalView==="shared"?"#ffb400":"#888",padding:"10px 0",borderRadius:9,cursor:"pointer",fontWeight:700,fontSize:12}}>🌍 Other Schools ({shared.length})</button>
+          </div>
+          {shown.length===0?(
+            <div style={{textAlign:"center",padding:"50px 0",color:"#555"}}>
+              <div style={{fontSize:36,marginBottom:10}}>📚</div>
+              <div style={{fontSize:13,fontWeight:600}}>{portalView==="mine"?"Your school hasn't uploaded anything yet.":"No other schools are sharing materials yet."}</div>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {shown.map(m=>(
+                <div key={m.id}>
+                  {m.scope==="shared"&&(
+                    <div style={{fontSize:10,color:"#666",marginBottom:4,paddingLeft:2,display:"flex",alignItems:"center"}}>
+                      From {m.schoolName}{m.schoolGold&&<GoldBadge/>}
+                    </div>
+                  )}
+                  <Card {...cardProps(m)}/>
+                </div>
+              ))}
+            </div>
+          )}
+        </>)}
+      </div>
+    );
+  };
+
   const Dash=()=>{
     if(!user||!profile) return <div style={{textAlign:"center",padding:60,color:"#444"}}>Loading…</div>;
     const expired=subscription?.reason==="expired";
@@ -1017,54 +1487,4 @@ export default function App() {
             </div>
             <div style={{padding:"0 16px 18px"}}>
               <div style={{position:"relative"}}>
-                <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:15,color:"#444"}}>🔍</span>
-                <input placeholder="Search notes, past papers, subjects…" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&search) setPage("browse");}} style={{...inp,paddingLeft:38,fontSize:13,background:"rgba(255,255,255,0.05)"}}/>
-              </div>
-            </div>
-            {!loading&&topDL.length>0&&(<div style={{padding:"0 16px 30px"}}><SectionHead icon="🔥" title="Most Downloaded" sub="Most popular revision materials"/><div style={{display:"flex",flexDirection:"column",gap:10}}>{topDL.map(m=><Card key={m.id} {...cardProps(m)}/>)}</div></div>)}
-            {!loading&&latest.length>0&&(<div style={{padding:"0 16px 30px"}}><SectionHead icon="🆕" title="Latest Uploads" sub="Freshly added content"/><div style={{display:"flex",flexDirection:"column",gap:10}}>{latest.map(m=><Card key={m.id} {...cardProps(m)}/>)}</div><button onClick={()=>setPage("browse")} style={{display:"block",width:"100%",marginTop:14,background:"none",border:"1px solid rgba(255,180,0,0.25)",color:"#ffb400",padding:"12px 0",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:13}}>View All →</button></div>)}
-            {loading&&<div style={{textAlign:"center",padding:"60px 0",color:"#444"}}>⏳ Loading materials…</div>}
-            {!loading&&mats.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:"#444"}}><div style={{fontSize:40,marginBottom:10}}>📚</div><div style={{fontSize:14,fontWeight:600,color:"#555"}}>No materials yet — check back soon!</div></div>}
-            <div style={{padding:"24px 16px 36px",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
-              <SectionHead icon="💳" title="Subscription Plans" sub="Affordable access via M-Pesa"/>
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[
-                  {name:"2 Weeks",price:"KSh 100",period:"per 2 weeks",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"biweekly"},
-                  {name:"Monthly",price:"KSh 200",period:"per month",feats:["All Materials","CBC + 8-4-4","Unlimited Downloads"],k:"monthly"},
-                  {name:"6 Months",price:"KSh 800",period:"per 6 months",feats:["Everything Monthly","Save vs monthly","Priority Support"],k:"sixmonth"},
-                  {name:"12 Months",price:"KSh 1,200",period:"per year",feats:["Everything 6-Month","Best Value","Priority Support"],hot:true,k:"annual"},
-                ].map(plan=>(<div key={plan.name} style={{background:plan.hot?"rgba(255,180,0,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${plan.hot?"rgba(255,180,0,0.25)":"rgba(255,255,255,0.07)"}`,borderRadius:14,padding:"16px",position:"relative"}}>{plan.hot&&<div style={{position:"absolute",top:-9,right:14,background:"linear-gradient(135deg,#ffb400,#ff7b00)",color:"#000",fontSize:9,fontWeight:800,padding:"2px 10px",borderRadius:50,textTransform:"uppercase",letterSpacing:1}}>Best Value</div>}<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div><div style={{fontSize:15,fontWeight:700,color:"#fff"}}>{plan.name}</div><div style={{fontSize:11,color:"#666"}}>{plan.period}</div></div><div style={{fontSize:24,fontWeight:900,color:"#ffb400",fontFamily:"'Playfair Display',serif"}}>{plan.price}</div></div><div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>{plan.feats.map(f=><span key={f} style={{fontSize:12,color:"#aaa"}}>✅ {f}</span>)}</div><button onClick={()=>setModal(user?"subscribe":"register")} style={btnPrimary}>{user?"Pay via M-Pesa":"Get Started"}</button></div>))}
-              </div>
-            </div>
-            <div style={{background:"#05090f",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"22px 16px 30px",textAlign:"center"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:6}}><div style={{width:26,height:26,background:"linear-gradient(135deg,#ffb400,#ff7b00)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,color:"#000"}}>T+</div><span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:14,color:"#fff"}}>Toppluss <span style={{color:"#ffb400"}}>Revisions</span></span></div>
-              <p style={{color:"#444",fontSize:11,margin:"0 0 14px"}}>Kenya's trusted revision platform · CBC & 8-4-4</p>
-              <a href="https://wa.me/254755803149" target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:8,background:"#25D366",color:"#fff",padding:"11px 22px",borderRadius:25,fontWeight:700,fontSize:13,textDecoration:"none",boxShadow:"0 4px 12px rgba(37,211,102,0.35)"}}><WaIcon/> +254 755 803 149</a>
-            </div>
-          </div>
-        </div>
-        <div style={{display:page==="browse"?"block":"none"}}>
-          <div style={{padding:"20px 16px 40px",background:"#080e1c",minHeight:"100dvh"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:18}}>📚</span><h2 style={{margin:0,fontSize:17,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>Browse Materials</h2><span style={{fontSize:12,color:"#555",marginLeft:"auto"}}>{filtMats.length} results</span></div>
-            <div style={{position:"relative",marginBottom:10}}><span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#444"}}>🔍</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{...inp,paddingLeft:36,fontSize:13}}/></div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-              {[{k:"system",opts:["CBC","8-4-4"],lbl:"System"},{k:"level",opts:bLvls,lbl:"Level"},{k:"subject",opts:bSubs,lbl:"Subject"},{k:"type",opts:TYPES,lbl:"Type"}].map(f=>(<select key={f.k} value={filt[f.k]} onChange={e=>setFilt(p=>({...p,[f.k]:e.target.value,...(f.k==="system"?{level:"",subject:""}:{}),...(f.k==="level"?{subject:""}:{})}))} style={{...inp,cursor:"pointer",fontSize:12}}><option value="">All {f.lbl}s</option>{f.opts.map(o=><option key={o}>{o}</option>)}</select>))}
-            </div>
-            <button onClick={()=>{setFilt({system:"",level:"",subject:"",type:""});setSearch("");}} style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",color:"#777",borderRadius:9,padding:"9px 0",cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:16}}>Clear Filters</button>
-            {loading?<div style={{textAlign:"center",padding:"60px 0",color:"#444"}}>⏳ Loading…</div>:filtMats.length===0?<div style={{textAlign:"center",padding:"60px 0",color:"#555"}}><div style={{fontSize:36,marginBottom:10}}>🔍</div><div style={{fontSize:14,fontWeight:600}}>No results found</div></div>:<div style={{display:"flex",flexDirection:"column",gap:10}}>{filtMats.map(m=><Card key={m.id} {...cardProps(m)}/>)}</div>}
-          </div>
-        </div>
-        {page==="dash"&&<Dash/>}
-        {page==="admin"&&isAdmin&&<Admin/>}
-      </main>
-      <a href="https://wa.me/254755803149?text=Hello%2C%20I%20need%20help%20with%20Toppluss%20Revisions" target="_blank" rel="noopener noreferrer" style={{position:"fixed",bottom:20,right:16,width:52,height:52,background:"#25D366",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(37,211,102,0.5)",zIndex:140,textDecoration:"none"}}><WaIcon/></a>
-      <Toast {...toast}/>
-      {modal==="login"&&<Modal onClose={()=>setModal(null)}><LoginM/></Modal>}
-      {modal==="forgot"&&<Modal onClose={()=>setModal(null)}><ForgotPasswordM/></Modal>}
-      {modal==="register"&&<Modal onClose={()=>setModal(null)}><RegisterM/></Modal>}
-      {modal==="subscribe"&&<Modal onClose={()=>setModal(null)}><SubscribeM/></Modal>}
-      {modal==="gate"&&<Modal onClose={()=>setModal(null)}><GateM/></Modal>}
-      {modal==="preview"&&<Modal onClose={()=>setModal(null)}><PreviewM/></Modal>}
-    </div>
-  );
-}
+                <s
