@@ -32,7 +32,15 @@ exports.handler = async (event) => {
       phone = "0" + phone.slice(3);
     }
 
-    const amount = parseFloat(body.net_amount || body.value || body.amount || 0);
+    // FIX 4: Use the GROSS amount the customer paid (amount/value), not
+    // net_amount. IntaSend's net_amount is the payment AFTER their
+    // transaction fee is deducted (e.g. a KES 200 payment can arrive as
+    // net_amount ~190-195), which was pushing payments below plan
+    // thresholds and misclassifying them into a cheaper tier. Round to
+    // guard against float rounding (e.g. 199.99).
+    const amount = Math.round(
+      parseFloat(body.amount || body.value || body.net_amount || 0)
+    );
 
     // Determine plan from amount paid (highest tier first)
     // 2 Weeks = KSh 100, Monthly = KSh 200, 6 Months = KSh 800, 12 Months = KSh 1,200
