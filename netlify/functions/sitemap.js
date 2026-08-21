@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY
 );
 
-const BASE_URL = "https://topplussrevisions.top";
+const BASE_URL = "https://www.topplussrevisions.com";
 
 const STATIC_PAGES = [
   { url: "/", priority: "1.0", changefreq: "daily" },
