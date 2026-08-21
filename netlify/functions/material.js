@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY
 );
 
-const BASE_URL = "https://topplussrevisions.top";
+const BASE_URL = "https://www.topplussrevisions.com";
 
 exports.handler = async (event) => {
   try {
