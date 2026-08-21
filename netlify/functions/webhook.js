@@ -55,6 +55,26 @@ exports.handler = async (event) => {
     const expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     const checkoutRequestId = body.checkout_request_id || body.id || body.invoice_id || null;
 
+    // FIX 5: Idempotency check. IntaSend can retry webhook delivery for the
+    // same payment (network hiccups, slow response, etc). Without this,
+    // a retry inserts a second "active" subscription row and supersedes
+    // the first, effectively double-processing one payment. If we've
+    // already recorded this checkout_request_id, short-circuit here.
+    if (checkoutRequestId) {
+      const { data: existing, error: existingErr } = await supabase
+        .from("subscriptions")
+        .select("id")
+        .eq("checkout_request_id", checkoutRequestId)
+        .maybeSingle();
+      if (existingErr) {
+        console.error("Idempotency check error:", existingErr);
+      }
+      if (existing) {
+        console.log("Already processed:", checkoutRequestId);
+        return { statusCode: 200, body: "Already processed" };
+      }
+    }
+
     // FIX 3: Identify the user by api_ref (the userId we attached when starting
     // the STK push) instead of relying only on phone number matching.
     // This means the account gets activated even if the person pays using a
@@ -63,22 +83,28 @@ exports.handler = async (event) => {
     const apiRefUserId = body.api_ref;
 
     if (apiRefUserId) {
-      const { data: byId } = await supabase
+      // FIX 6: maybeSingle() instead of single() — single() throws on 0
+      // rows, and since only `data` was destructured before, that error
+      // was silently dropped, making a real DB problem look identical to
+      // "user not found".
+      const { data: byId, error: idErr } = await supabase
         .from("profiles")
         .select("id")
         .eq("id", apiRefUserId)
-        .single();
+        .maybeSingle();
       if (byId) profile = byId;
+      else if (idErr) console.error("api_ref lookup error:", idErr);
     }
 
     // Fallback: match by phone number if api_ref lookup didn't find anyone
     if (!profile) {
-      const { data: byPhone } = await supabase
+      const { data: byPhone, error: phoneErr } = await supabase
         .from("profiles")
         .select("id")
         .eq("phone", phone)
-        .single();
+        .maybeSingle();
       if (byPhone) profile = byPhone;
+      else if (phoneErr) console.error("Phone lookup error:", phoneErr);
     }
 
     if (!profile) {
