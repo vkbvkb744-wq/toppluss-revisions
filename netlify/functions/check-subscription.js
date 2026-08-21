@@ -36,10 +36,24 @@ exports.handler = async (event) => {
       .eq("status", "active")
       .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (error || !sub) {
-      // No active subscription found
+    // FIX: maybeSingle() returns null (not an error) when there are simply
+    // no rows. A real `error` here means something actually went wrong
+    // (network, RLS, timeout) — previously that was treated identically to
+    // "no subscription", which could tell a paying subscriber they're
+    // unsubscribed during a transient DB hiccup, since this runs on every
+    // login. Surface real errors as a 500 instead of masking them.
+    if (error) {
+      console.error("check-subscription query error:", error);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Could not verify subscription, please retry" }),
+      };
+    }
+
+    if (!sub) {
+      // Genuinely no active subscription found
       return {
         statusCode: 200,
         body: JSON.stringify({ active: false, reason: "no_subscription" }),
