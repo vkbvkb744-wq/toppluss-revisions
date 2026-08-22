@@ -83,10 +83,6 @@ exports.handler = async (event) => {
     const apiRefUserId = body.api_ref;
 
     if (apiRefUserId) {
-      // FIX 6: maybeSingle() instead of single() — single() throws on 0
-      // rows, and since only `data` was destructured before, that error
-      // was silently dropped, making a real DB problem look identical to
-      // "user not found".
       const { data: byId, error: idErr } = await supabase
         .from("profiles")
         .select("id")
@@ -112,23 +108,50 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: "User not found" };
     }
 
-    await supabase
+    // FIX 7 (NEW): Check the result of the supersede update. Previously
+    // this was fire-and-forget — if it silently failed, we'd have no
+    // record and no way to know.
+    const { error: supersedeErr } = await supabase
       .from("subscriptions")
       .update({ status: "superseded" })
       .eq("user_id", profile.id)
       .eq("status", "active");
 
-    await supabase.from("subscriptions").insert([{
-      user_id: profile.id,
-      plan,
-      phone,
-      status: "active",
-      started_at: now.toISOString(),
-      expires_at: expiresAt.toISOString(),
-      checkout_request_id: checkoutRequestId,
-    }]);
+    if (supersedeErr) {
+      console.error("Supersede update error:", supersedeErr);
+      // Not fatal on its own — continue, but log loudly so it's visible.
+    }
 
-    console.log("Activated:", profile.id, phone, plan, checkoutRequestId);
+    // FIX 7 (NEW): Check the result of the insert. This is the critical
+    // fix — previously the insert's result was discarded entirely, so a
+    // failed insert (RLS policy block, bad/missing service role key,
+    // constraint violation, etc.) would silently do nothing while the
+    // code still logged "Activated" and returned 200 OK, making the
+    // payment look successful in our logs when nothing was actually
+    // saved. Now a failed insert is logged clearly and returns a 500 so
+    // IntaSend will retry the webhook instead of considering it done.
+    const { data: inserted, error: insertErr } = await supabase
+      .from("subscriptions")
+      .insert([{
+        user_id: profile.id,
+        plan,
+        phone,
+        status: "active",
+        started_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        checkout_request_id: checkoutRequestId,
+      }])
+      .select()
+      .single();
+
+    if (insertErr) {
+      console.error("Insert subscription FAILED:", insertErr, {
+        userId: profile.id, phone, plan, checkoutRequestId,
+      });
+      return { statusCode: 500, body: "Failed to save subscription" };
+    }
+
+    console.log("Activated:", profile.id, phone, plan, checkoutRequestId, "row:", inserted.id);
     return { statusCode: 200, body: "OK" };
 
   } catch (err) {
