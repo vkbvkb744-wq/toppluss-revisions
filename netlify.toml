@@ -4,6 +4,12 @@
   functions = "netlify/functions"
 
 [[redirects]]
+  from = "https://topplussrevisions.top/*"
+  to = "https://topplussrevisions.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
   from = "/sitemap.xml"
   to = "/.netlify/functions/sitemap"
   status = 200
