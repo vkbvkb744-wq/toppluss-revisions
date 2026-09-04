@@ -56,6 +56,15 @@ exports.handler = async () => {
         const data = await res.json();
         const state = data.invoice?.state;
 
+        if (state === "FAILED") {
+          console.log(`Invoice ${payment.invoice_id} FAILED, marking done (no further checks).`);
+          await supabase
+            .from("pending_payments")
+            .update({ status: "failed", reconciled_at: new Date().toISOString() })
+            .eq("id", payment.id);
+          continue;
+        }
+
         if (state !== "COMPLETE") {
           console.log(`Invoice ${payment.invoice_id} still ${state || "unknown"}, skipping.`);
           continue;
