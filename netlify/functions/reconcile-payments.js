@@ -33,16 +33,26 @@ exports.handler = async () => {
 
     for (const payment of pending) {
       try {
-        // Check status directly with IntaSend
+        // Check status directly with IntaSend (POST with invoice_id in body)
         const res = await fetch(
-          `https://payment.intasend.com/api/v1/payment/status/${payment.invoice_id}/`,
+          "https://payment.intasend.com/api/v1/payment/status/",
           {
+            method: "POST",
             headers: {
+              "Content-Type": "application/json",
               "X-IntaSend-Public-API-Key": process.env.INSTASEND_PUBLIC_KEY,
               "Authorization": `Bearer ${process.env.INSTASEND_PRIVATE_KEY}`
-            }
+            },
+            body: JSON.stringify({ invoice_id: payment.invoice_id })
           }
         );
+
+        if (!res.ok) {
+          const text = await res.text();
+          console.error(`Status check failed for invoice ${payment.invoice_id}: HTTP ${res.status} — ${text.slice(0, 200)}`);
+          continue;
+        }
+
         const data = await res.json();
         const state = data.invoice?.state;
 
