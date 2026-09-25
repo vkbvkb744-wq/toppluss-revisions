@@ -30,4 +30,4 @@
   status = 200
 
 [functions."reconcile-payments"]
-  schedule = "*/10 * * * *"
+  schedule = "0 0 * * *"
