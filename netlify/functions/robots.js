@@ -2,7 +2,7 @@ exports.handler = async () => {
   const robots = `User-agent: *
 Allow: /
 
-Sitemap: https://www.topplussrevisions.com/sitemap.xml`;
+Sitemap: https://topplussrevisions.com/sitemap.xml`;
 
   return {
     statusCode: 200,
