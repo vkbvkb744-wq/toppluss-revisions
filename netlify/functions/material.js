@@ -40,8 +40,15 @@ exports.handler = async (event) => {
     const description = material.description
       ? `${material.description} Download ${material.title} for ${material.level} ${material.subject} on Toppluss Revisions Kenya.`
       : `Download ${material.title} for ${material.level} ${material.subject}. ${material.system} revision material. KCSE and CBC Kenya. Subscribe from KSh 50/week.`;
-    const slug = material.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = material.slug || material.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const canonicalUrl = `${BASE_URL}/material/${material.id}-${slug}`;
+
+    // Crawlers keep the SEO page; real visitors are sent to the app
+    const ua = (event.headers && (event.headers["user-agent"] || event.headers["User-Agent"])) || "";
+    const isBot = /googlebot|google-inspectiontool|bingbot|duckduckbot|yandex|baiduspider|facebookexternalhit|twitterbot|whatsapp|linkedinbot|slackbot|telegrambot/i.test(ua);
+    const redirectScript = isBot
+      ? ""
+      : `<script>window.location.replace("/?material=${material.id}");</script>`;
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -61,10 +68,7 @@ exports.handler = async (event) => {
   <meta name="twitter:description" content="${description}" />
   <link rel="canonical" href="${canonicalUrl}" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <script>
-    // Redirect to React app with this material open
-    window.location.href = "/?material=${material.id}";
-  </script>
+  ${redirectScript}
 </head>
 <body>
   <!-- SEO Content for Google -->
@@ -86,7 +90,8 @@ exports.handler = async (event) => {
       statusCode: 200,
       headers: {
         "Content-Type": "text/html",
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Vary": "User-Agent",
       },
       body: html,
     };
