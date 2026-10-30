@@ -5,6 +5,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// "biweekly" is kept only so existing 2-week subscribers and in-flight
+// old-price payments still resolve. It is no longer sold.
 const PLAN_DAYS = { biweekly: 14, monthly: 30, sixmonth: 180, annual: 365 };
 
 exports.handler = async () => {
@@ -87,11 +89,14 @@ exports.handler = async () => {
         }
 
         // Not activated yet — do it now, same logic as the webhook.
+        // Monthly = KSh 300, 6 Months = KSh 1,800, 12 Months = KSh 3,600.
+        // Anything below 300 falls through to "biweekly" (legacy: only
+        // payments started at the old prices can land here).
         const amount = Math.round(parseFloat(data.invoice?.value || payment.amount || 0));
         const plan =
-          amount >= 1200 ? "annual" :
-          amount >= 800 ? "sixmonth" :
-          amount >= 200 ? "monthly" :
+          amount >= 3600 ? "annual" :
+          amount >= 1800 ? "sixmonth" :
+          amount >= 300 ? "monthly" :
           "biweekly";
         const days = PLAN_DAYS[plan];
         const now = new Date();
