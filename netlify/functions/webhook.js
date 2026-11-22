@@ -5,6 +5,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// "biweekly" is kept here only so existing 2-week subscribers and any
+// in-flight old-price payments still resolve. It is no longer sold.
 const PLAN_DAYS = { biweekly: 14, monthly: 30, sixmonth: 180, annual: 365 };
 
 exports.handler = async (event) => {
@@ -34,20 +36,22 @@ exports.handler = async (event) => {
 
     // FIX 4: Use the GROSS amount the customer paid (amount/value), not
     // net_amount. IntaSend's net_amount is the payment AFTER their
-    // transaction fee is deducted (e.g. a KES 200 payment can arrive as
-    // net_amount ~190-195), which was pushing payments below plan
+    // transaction fee is deducted (e.g. a KES 300 payment can arrive as
+    // net_amount ~290-295), which was pushing payments below plan
     // thresholds and misclassifying them into a cheaper tier. Round to
-    // guard against float rounding (e.g. 199.99).
+    // guard against float rounding (e.g. 299.99).
     const amount = Math.round(
       parseFloat(body.amount || body.value || body.net_amount || 0)
     );
 
     // Determine plan from amount paid (highest tier first)
-    // 2 Weeks = KSh 100, Monthly = KSh 200, 6 Months = KSh 800, 12 Months = KSh 1,200
+    // Monthly = KSh 300, 6 Months = KSh 1,800, 12 Months = KSh 3,600
+    // Anything below 300 falls through to "biweekly" (legacy: only payments
+    // started at the old prices before this change can land here).
     const plan =
-      amount >= 1200 ? "annual" :
-      amount >= 800 ? "sixmonth" :
-      amount >= 200 ? "monthly" :
+      amount >= 3600 ? "annual" :
+      amount >= 1800 ? "sixmonth" :
+      amount >= 300 ? "monthly" :
       "biweekly";
 
     const days = PLAN_DAYS[plan];
